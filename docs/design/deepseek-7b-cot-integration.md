@@ -1,4 +1,4 @@
-# DeepSeek-Prover-V2-7B CoT integration design
+# DeepSeek-Prover-V2-7B CoT Integration Design
 
 ## Goal
 
