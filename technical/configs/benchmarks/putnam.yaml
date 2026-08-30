@@ -1,0 +1,5 @@
+generation:
+  strategy: full_header
+verification:
+  mode: full_header_repl
+  timeout: 300

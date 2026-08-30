@@ -1,0 +1,11 @@
+model:
+  id: Goedel-LM/Goedel-Prover-V2-32B
+  tensor_parallel_size: 4
+  trust_remote_code: false
+  revision: null
+  cli_override: --model-path
+generation:
+  temperature: 1.0
+  top_p: 0.95
+  max_model_len: 32768
+  samples_per_problem: 32

@@ -1,0 +1,3 @@
+[submodule "mathlib4"]
+	path = technical/vendor/mathlib4
+	url = https://github.com/xinhjBrant/mathlib4.git

@@ -1,0 +1,12 @@
+This repository contains a portable public evaluation pipeline adapted from
+Goedel-Prover-V2 (https://github.com/Goedel-LM/Goedel-Prover-V2).
+
+The technical Python pipeline, shell orchestration, environment and toolchain
+files, and configuration files adapt public upstream material and conventions.
+This includes prompt construction, proof extraction, Lean verification, and
+benchmark-specific evaluation logic. The upstream README identifies
+Goedel-Prover-V2 as licensed under the Apache License 2.0. This distribution
+retains the Apache License 2.0 text in LICENSE.
+
+The Mathlib4 dependency is separately identified by the repository submodule
+metadata and is not vendored in this source tree.

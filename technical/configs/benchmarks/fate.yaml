@@ -1,0 +1,6 @@
+generation:
+  strategy: standard
+verification:
+  mode: standard_repl
+  retain_header: true
+  timeout: 300

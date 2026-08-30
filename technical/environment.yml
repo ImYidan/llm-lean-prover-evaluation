@@ -1,0 +1,14 @@
+name: goedel-prover-v2
+channels:
+  - conda-forge
+  - nvidia
+dependencies:
+  - python=3.10
+  - pip
+  - pytest
+  - pip:
+      - pexpect==4.9.0
+      - pyyaml==6.0.2
+      - torch==2.6.0
+      - transformers==4.51.3
+      - vllm==0.8.5.post1
