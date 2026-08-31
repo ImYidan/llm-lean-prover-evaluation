@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Iterable
 
 from technical.src.generation.adapters.goedel import GoedelPromptAdapter
+from technical.src.generation.candidates import Candidate
 from technical.src.generation.proof_extraction import (
     ProofAssemblyError,
     assemble_standard_submission,
@@ -113,7 +114,12 @@ def generate_records(
         if len(outputs) != len(prepared):
             raise RuntimeError("generation backend returned the wrong number of outputs")
 
-        for (attempt, prompt, messages), model_output in zip(prepared, outputs):
+        for (attempt, prompt, messages), candidates in zip(prepared, outputs):
+            if len(candidates) != 1:
+                raise RuntimeError(
+                    "Goedel generation requires one candidate per request"
+                )
+            model_output = candidates[0].text
             record = dict(attempt)
             record["model_input"] = prompt
             record["messages_history_for_this_attempt"] = messages
@@ -157,9 +163,15 @@ class _VllmBackend:
         self.model = model
         self.sampling_params = sampling_params
 
-    def generate(self, prompts: list[str]) -> list[str]:
+    def generate(self, prompts: list[str]) -> list[list[Candidate]]:
         requests = self.model.generate(prompts, self.sampling_params)
-        return [request.outputs[0].text for request in requests]
+        return [
+            [
+                Candidate(item.text, item.finish_reason, item.stop_reason)
+                for item in request.outputs
+            ]
+            for request in requests
+        ]
 
 
 def create_vllm_backend(
@@ -171,6 +183,7 @@ def create_vllm_backend(
     temperature: float,
     top_p: float,
     max_tokens: int,
+    samples_per_prompt: int = 1,
     trust_remote_code: bool = False,
     revision: str | None = None,
 ):
@@ -193,7 +206,7 @@ def create_vllm_backend(
         temperature=temperature,
         top_p=top_p,
         max_tokens=max_tokens,
-        n=1,
+        n=samples_per_prompt,
     )
     return tokenizer, _VllmBackend(model, params)
 

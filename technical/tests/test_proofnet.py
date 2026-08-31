@@ -11,6 +11,7 @@ from technical.src.benchmarks.run_proofnet_incremental import (
     run_incremental_stages,
 )
 from technical.src.generation.adapters.goedel import GoedelPromptAdapter
+from technical.src.generation.candidates import Candidate
 from technical.src.generation.generate import generate_records
 
 
@@ -150,7 +151,7 @@ def test_shared_generator_accepts_proofnet_assembly_hook(tmp_path):
 
     class Backend:
         def generate(self, prompts):
-            return ["generated"] * len(prompts)
+            return [[Candidate("generated")] for _ in prompts]
 
     def assembler(statement, output):
         assert output == "generated"

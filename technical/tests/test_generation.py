@@ -2,7 +2,10 @@
 
 import json
 
+import pytest
+
 from technical.src.generation.adapters.goedel import GoedelPromptAdapter
+from technical.src.generation.candidates import Candidate
 from technical.src.generation.generate import build_attempts, build_parser, generate_records
 
 
@@ -19,7 +22,10 @@ class FakeTokenizer:
 class FakeBackend:
     def generate(self, prompts):
         assert prompts and all(prompt.startswith("CHAT::") for prompt in prompts)
-        return ["```lean4\ntheorem generated : True := by\n  trivial\n```"] * len(prompts)
+        return [
+            [Candidate("```lean4\ntheorem generated : True := by\n  trivial\n```")]
+            for _ in prompts
+        ]
 
 
 def test_generation_offset_assigns_stable_ids():
@@ -44,7 +50,7 @@ def test_prompt_adapter_preserves_statement_and_uses_chat_template():
     assert "detailed proof plan" in messages[0]["content"]
 
 
-def test_fake_backend_writes_historical_json_arrays(tmp_path):
+def test_singleton_candidate_writes_historical_json_arrays(tmp_path):
     rows = [{"name": "target", "lean4_code": "theorem target : True := by sorry"}]
 
     full_records, inference_records = generate_records(
@@ -72,6 +78,21 @@ def test_fake_backend_writes_historical_json_arrays(tmp_path):
     assert inference_records[0]["messages_history_list"] == record[
         "messages_history_for_this_attempt"
     ]
+
+
+def test_goedel_rejects_grouped_candidates(tmp_path):
+    backend = FakeBackend()
+    backend.generate = lambda prompts: [[Candidate("a"), Candidate("b")]]
+
+    with pytest.raises(RuntimeError, match="one candidate"):
+        generate_records(
+            [{"name": "target", "lean4_code": "theorem target : True := by sorry"}],
+            tokenizer=FakeTokenizer(),
+            backend=backend,
+            adapter=GoedelPromptAdapter(),
+            output_dir=tmp_path,
+            samples=1,
+        )
 
 
 def test_attempt_builder_skips_rows_without_lean_code():
