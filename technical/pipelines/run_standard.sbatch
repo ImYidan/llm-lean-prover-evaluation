@@ -42,6 +42,7 @@ SAMPLES=${SETTINGS[0]}
 TEMPERATURE=${SETTINGS[1]}
 TOP_P=${SETTINGS[2]}
 MAX_MODEL_LEN=${SETTINGS[3]}
+MAX_TOKENS=$((MAX_MODEL_LEN - 1))
 TENSOR_PARALLEL_SIZE=${SETTINGS[4]}
 TRUST_REMOTE_CODE=${SETTINGS[5]}
 REVISION=${SETTINGS[6]}
@@ -63,7 +64,7 @@ fi
   --temperature "${TEMPERATURE}" \
   --top-p "${TOP_P}" \
   --max-model-len "${MAX_MODEL_LEN}" \
-  --max-tokens "${MAX_MODEL_LEN}" \
+  --max-tokens "${MAX_TOKENS}" \
   --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}" \
   "${MODEL_ARGS[@]}"
 

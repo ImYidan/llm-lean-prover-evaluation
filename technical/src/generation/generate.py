@@ -188,6 +188,11 @@ def create_vllm_backend(
     revision: str | None = None,
 ):
     """Create real tokenizer/backend objects while keeping imports lazy."""
+    validate_generation_options(
+        samples=samples_per_prompt,
+        max_model_len=max_model_len,
+        max_tokens=max_tokens,
+    )
     from transformers import AutoTokenizer
     from vllm import LLM, SamplingParams
 
@@ -211,11 +216,22 @@ def create_vllm_backend(
     return tokenizer, _VllmBackend(model, params)
 
 
+def validate_generation_options(
+    *, samples: int, max_model_len: int, max_tokens: int
+) -> None:
+    """Reject invalid generation limits before loading optional model backends."""
+    if samples < 1:
+        raise ValueError("samples must be positive")
+    if max_tokens >= max_model_len:
+        raise ValueError("max_tokens must be less than max_model_len")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--adapter", choices=("goedel", "deepseek"), default="goedel")
     parser.add_argument("--split", default="none")
     parser.add_argument("--samples", type=int, default=32)
     parser.add_argument("--generation-offset", type=int, default=0)
@@ -223,7 +239,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--max-model-len", type=int, default=32768)
-    parser.add_argument("--max-tokens", type=int, default=32768)
+    parser.add_argument("--max-tokens", type=int, default=32767)
     parser.add_argument("--tensor-parallel-size", type=int, default=4)
     parser.add_argument("--chunk-size", type=int, default=128)
     parser.add_argument("--trust-remote-code", action="store_true")
@@ -233,6 +249,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    try:
+        validate_generation_options(
+            samples=args.samples,
+            max_model_len=args.max_model_len,
+            max_tokens=args.max_tokens,
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     rows = load_jsonl(args.input, args.split)
     tokenizer, backend = create_vllm_backend(
         model_path=args.model_path,
@@ -242,9 +266,22 @@ def main(argv: list[str] | None = None) -> int:
         temperature=args.temperature,
         top_p=args.top_p,
         max_tokens=args.max_tokens,
+        samples_per_prompt=args.samples if args.adapter == "deepseek" else 1,
         trust_remote_code=args.trust_remote_code,
         revision=args.revision,
     )
+    if args.adapter == "deepseek":
+        from technical.src.generation.deepseek import generate_deepseek_records
+
+        generate_deepseek_records(
+            rows,
+            tokenizer=tokenizer,
+            backend=backend,
+            output_dir=args.output_dir,
+            samples=args.samples,
+            generation_offset=args.generation_offset,
+        )
+        return 0
     generate_records(
         rows,
         tokenizer=tokenizer,

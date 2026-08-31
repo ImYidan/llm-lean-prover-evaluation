@@ -47,6 +47,7 @@ case "${TARGET_PASS}:${GENERATION_OFFSET}:${SAMPLES}" in
 esac
 
 MODEL_ARGS=()
+MAX_TOKENS=$((SETTINGS[2] - 1))
 if [[ "${SETTINGS[4]}" == "true" ]]; then
   MODEL_ARGS+=(--trust-remote-code)
 fi
@@ -70,7 +71,7 @@ rm -f "${STAGE_MARKER}"
   --input "${CHUNK_INPUT}" --model-path "${MODEL_PATH}" --output-dir "${STAGE_DIR}" \
   --samples "${SAMPLES}" --generation-offset "${GENERATION_OFFSET}" \
   --temperature "${SETTINGS[0]}" --top-p "${SETTINGS[1]}" \
-  --max-model-len "${SETTINGS[2]}" --max-tokens "${SETTINGS[2]}" \
+  --max-model-len "${SETTINGS[2]}" --max-tokens "${MAX_TOKENS}" \
   --tensor-parallel-size "${SETTINGS[3]}" "${MODEL_ARGS[@]}"
 
 "${PYTHON_BIN}" -m technical.src.verification.verify_full_header_repl \
