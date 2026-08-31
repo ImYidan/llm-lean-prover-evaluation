@@ -1,6 +1,7 @@
 """Tests for Putnam JSONL chunking, merging, and progress summaries."""
 
 import json
+from pathlib import Path
 
 from technical.src.benchmarks.putnam_chunking import (
     chunk_bounds,
@@ -8,6 +9,12 @@ from technical.src.benchmarks.putnam_chunking import (
     merge_json_lists,
     split_jsonl,
     summarize_chunk_progress,
+)
+
+
+ROOT = Path(__file__).parents[2]
+DEEPSEEK_PUTNAM_PIPELINE = (
+    ROOT / "technical/pipelines/run_deepseek_putnam_chunked.sbatch"
 )
 
 
@@ -155,3 +162,23 @@ def test_cumulative_stage_merge_rejects_generation_gaps(tmp_path):
         assert "expected generations" in str(error)
     else:
         raise AssertionError("generation gap was accepted")
+
+
+def test_deepseek_putnam_pipeline_declares_exact_cumulative_stages():
+    """Catch drift from the reviewed 1, 1+7, 1+7+8, 1+7+8+16 schedule."""
+    assert DEEPSEEK_PUTNAM_PIPELINE.is_file()
+    text = DEEPSEEK_PUTNAM_PIPELINE.read_text(encoding="utf-8")
+
+    assert 'case "${TARGET_PASS}:${GENERATION_OFFSET}:${SAMPLES}" in' in text
+    assert '1:0:1) STAGE_SPECS=("0:1") ;;' in text
+    assert '8:1:7) STAGE_SPECS=("0:1" "1:7") ;;' in text
+    assert '16:8:8) STAGE_SPECS=("0:1" "1:7" "8:8") ;;' in text
+    assert '32:16:16) STAGE_SPECS=("0:1" "1:7" "8:8" "16:16") ;;' in text
+    assert "unsupported checkpoint" in text
+
+    assert "--adapter" in text and "deepseek" in text
+    assert "putnam_chunking split" in text
+    assert "putnam_chunking cumulative" in text
+    assert "putnam_chunking merge" in text
+    assert "putnam_chunking progress" in text
+    assert '[[ ! -f "${required}/COMPLETE" ]]' in text

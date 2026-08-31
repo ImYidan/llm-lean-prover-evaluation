@@ -18,6 +18,8 @@ REQUIRED = (
     ROOT / "technical/lean/fate-v428/lakefile.toml",
     ROOT / "technical/lean/fate-v428/lake-manifest.json",
     ROOT / "technical/configs/models/goedel-prover-v2-32b.yaml",
+    ROOT / "technical/pipelines/run_deepseek.sbatch",
+    ROOT / "technical/pipelines/run_deepseek_putnam_chunked.sbatch",
 )
 TEXT_SUFFIXES = {".py", ".sh", ".sbatch", ".yaml", ".yml", ".md", ".txt"}
 EXCLUDED_DIRECTORIES = {
@@ -60,11 +62,25 @@ FATE_VENDOR_DIRECTORIES = {
     "REPL",
     "repl",
 }
-PIPELINES = (
+GOEDEL_PIPELINES = (
     ROOT / "technical/pipelines/run_standard.sbatch",
     ROOT / "technical/pipelines/run_proofnet_incremental.sbatch",
     ROOT / "technical/pipelines/run_putnam_chunked.sbatch",
 )
+DEEPSEEK_PIPELINES = (
+    ROOT / "technical/pipelines/run_deepseek.sbatch",
+    ROOT / "technical/pipelines/run_deepseek_putnam_chunked.sbatch",
+)
+PIPELINES = GOEDEL_PIPELINES + DEEPSEEK_PIPELINES
+
+
+def _last_effective_line(text: str) -> str:
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            lines.append(stripped)
+    return lines[-1]
 
 
 def _required_paths(root: Path) -> tuple[Path, ...]:
@@ -226,29 +242,92 @@ def test_slurm_pipelines_are_portable_and_fail_fast():
             "technical.src.generation.generate",
             "technical.src.verification.verify_full_header_repl",
         ),
+        "run_deepseek.sbatch": (
+            "technical.src.generation.generate",
+            "technical.src.verification.verify_full_header_repl",
+            "technical.src.evaluation.summarize_passk",
+        ),
+        "run_deepseek_putnam_chunked.sbatch": (
+            "technical.src.benchmarks.putnam_chunking",
+            "technical.src.generation.generate",
+            "technical.src.verification.verify_full_header_repl",
+        ),
     }
     for path in PIPELINES:
         text = path.read_text(encoding="utf-8")
         assert "set -euo pipefail" in text
-        assert "#SBATCH --account" not in text
-        assert "#SBATCH --partition" not in text
+        assert "#SBATCH --" not in text
         assert "inference_putnam" not in text
         for module in expected_modules[path.name]:
             assert module in text
         for variable in ("INPUT_PATH", "OUTPUT_DIR", "MODEL_PATH", "WORKSPACE"):
             assert f'"${{{variable}}}"' in text
-    putnam = PIPELINES[2].read_text(encoding="utf-8")
+    putnam = (ROOT / "technical/pipelines/run_putnam_chunked.sbatch").read_text(
+        encoding="utf-8"
+    )
     assert "--generation-offset" in putnam
     assert "putnam_chunking merge" in putnam
     assert "cumulative_pass" in putnam
     assert '[[ -f "${candidate_marker}" ]]' in putnam
 
 
+def test_deepseek_pipelines_use_profiles_adapter_and_shared_verifier():
+    standard = DEEPSEEK_PIPELINES[0].read_text(encoding="utf-8")
+    putnam = DEEPSEEK_PIPELINES[1].read_text(encoding="utf-8")
+
+    for text in (standard, putnam):
+        assert "--adapter" in text and "deepseek" in text
+        assert "--model-path" in text and '"${MODEL_PATH}"' in text
+        assert "--max-tokens" in text and '"${MAX_TOKENS}"' in text
+        assert "technical.src.verification.verify_full_header_repl" in text
+        assert "verify_standard_repl" not in text
+        assert "verify_full_header_file" not in text
+        assert "sample_schedule" in text
+        assert "max_model_len" in text
+        assert "max_tokens" in text
+        assert "rm -f" in text and "COMPLETE" in text
+        assert _last_effective_line(text) == 'touch "${OUTPUT_DIR}/COMPLETE"'
+
+    assert "--assembly-mode" in standard
+    assert "proofnet" in standard
+    assert "RUN_CONFIG" in standard
+
+
+def test_slurm_scripts_contain_no_private_runtime_paths_or_weights():
+    forbidden = (
+        "/" + "home/",
+        "/" + "scratch/",
+        "~/",
+        ".cache/" + "huggingface",
+        "HF" + "_HOME",
+        "HF" + "_HUB_CACHE",
+        "HUGGINGFACE" + "_HUB_CACHE",
+        "TRANSFORMERS" + "_CACHE",
+        "HF" + "_TOKEN",
+        "HUGGINGFACE" + "_TOKEN",
+        "api" + "_key",
+        "access" + "_token",
+        "tokenizer" + ".json",
+        ".safe" + "tensors",
+        "pytorch_model" + ".bin",
+    )
+    violations = []
+    for path in (ROOT / "technical/pipelines").glob("*.sbatch"):
+        text = path.read_text(encoding="utf-8")
+        for marker in forbidden:
+            if marker in text:
+                violations.append((path.name, marker))
+
+    assert violations == []
+
+
 def test_runtime_dependencies_and_pipeline_configs_are_effective():
     environment = (ROOT / "technical/environment.yml").read_text(encoding="utf-8")
     assert "pexpect==4.9.0" in environment
 
-    standard, proofnet, putnam = (path.read_text(encoding="utf-8") for path in PIPELINES)
+    standard, proofnet, putnam = (
+        path.read_text(encoding="utf-8") for path in GOEDEL_PIPELINES
+    )
     assert "standard_repl" in standard and "--proof-timeout" in standard
     assert "full_header_file" in proofnet and "BENCHMARK_CONFIG" in proofnet
     assert "full_header_repl" in putnam and "BENCHMARK_CONFIG" in putnam
@@ -263,7 +342,7 @@ def test_technical_readme_documents_the_public_data_flow_and_inputs():
     text = readme.read_text(encoding="utf-8")
     for stage in ("Generation", "Extraction", "Verification", "Summary"):
         assert stage in text
-    for pipeline in PIPELINES:
+    for pipeline in GOEDEL_PIPELINES:
         assert f"pipelines/{pipeline.name}" in text
     for supplied_input in ("--model-path", "--input", "--workspace"):
         assert supplied_input in text

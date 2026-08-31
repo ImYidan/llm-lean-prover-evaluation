@@ -232,6 +232,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--adapter", choices=("goedel", "deepseek"), default="goedel")
+    parser.add_argument(
+        "--assembly-mode",
+        choices=("standard", "proofnet"),
+        default="standard",
+        help="DeepSeek proof assembly policy; ProofNet keeps the target-aware header.",
+    )
     parser.add_argument("--split", default="none")
     parser.add_argument("--samples", type=int, default=32)
     parser.add_argument("--generation-offset", type=int, default=0)
@@ -249,6 +255,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.adapter != "deepseek" and args.assembly_mode != "standard":
+        raise SystemExit("--assembly-mode is only supported with --adapter deepseek")
     try:
         validate_generation_options(
             samples=args.samples,
@@ -271,8 +279,25 @@ def main(argv: list[str] | None = None) -> int:
         revision=args.revision,
     )
     if args.adapter == "deepseek":
+        assembler = None
+        if args.assembly_mode == "proofnet":
+            from technical.src.benchmarks.proofnet import (
+                assemble_proofnet_model_output,
+                prepare_unique_rows,
+            )
+
+            rows, duplicate_report = prepare_unique_rows(rows)
+            _atomic_write_json(
+                args.output_dir / "proofnet_duplicate_problem_ids.json",
+                duplicate_report,
+            )
+            assembler = assemble_proofnet_model_output
+
         from technical.src.generation.deepseek import generate_deepseek_records
 
+        kwargs = {}
+        if assembler is not None:
+            kwargs["assembler"] = assembler
         generate_deepseek_records(
             rows,
             tokenizer=tokenizer,
@@ -280,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=args.output_dir,
             samples=args.samples,
             generation_offset=args.generation_offset,
+            **kwargs,
         )
         return 0
     generate_records(

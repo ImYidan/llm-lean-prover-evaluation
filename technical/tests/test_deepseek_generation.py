@@ -7,6 +7,7 @@ import types
 import pytest
 
 from technical.src.benchmarks.proofnet import assemble_proofnet_model_output
+from technical.src.generation import generate as generate_cli
 from technical.src.generation.candidates import Candidate
 from technical.src.generation.checkpoints import append_checkpoint, load_checkpoint
 from technical.src.generation.deepseek import generate_deepseek_records
@@ -528,3 +529,97 @@ def test_cli_accepts_deepseek_adapter():
     )
 
     assert args.adapter == "deepseek"
+
+
+def test_cli_accepts_deepseek_proofnet_assembly_mode():
+    """Expose the target-aware ProofNet assembler for DeepSeek profile runs."""
+    args = build_parser().parse_args(
+        [
+            "--input",
+            "input.jsonl",
+            "--model-path",
+            "model",
+            "--output-dir",
+            "out",
+            "--adapter",
+            "deepseek",
+            "--assembly-mode",
+            "proofnet",
+        ]
+    )
+
+    assert args.assembly_mode == "proofnet"
+
+
+def test_deepseek_cli_proofnet_mode_prepares_rows_and_uses_target_assembler(
+    tmp_path, monkeypatch
+):
+    """Catch a ProofNet run that falls back to the standard first-theorem assembler."""
+    input_path = tmp_path / "proofnet.jsonl"
+    source = (
+        "lemma helper : True := by trivial\n\n"
+        "theorem target : True := by sorry"
+    )
+    rows = [
+        {"problem_id": "same id", "lean4_code": source},
+        {"problem_id": "same id", "lean4_code": source.replace("target", "target_two")},
+    ]
+    input_path.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+    )
+    output_dir = tmp_path / "out"
+    captured = {}
+
+    def fake_create_vllm_backend(**kwargs):
+        captured["backend_kwargs"] = kwargs
+        return FakeTokenizer(), object()
+
+    def fake_generate_deepseek_records(rows, *, assembler, **kwargs):
+        captured["rows"] = rows
+        captured["kwargs"] = kwargs
+        model_output = (
+            "plan\n```lean4\n"
+            "lemma generated_helper : True := by trivial\n\n"
+            "theorem target : True := by\n"
+            "  trivial\n"
+            "```"
+        )
+        captured["assembled"] = assembler(rows[0]["lean4_code"], model_output)
+        return [], []
+
+    monkeypatch.setattr(generate_cli, "create_vllm_backend", fake_create_vllm_backend)
+    import technical.src.generation.deepseek as deepseek_module
+
+    monkeypatch.setattr(
+        deepseek_module, "generate_deepseek_records", fake_generate_deepseek_records
+    )
+
+    result = generate_cli.main(
+        [
+            "--input",
+            str(input_path),
+            "--model-path",
+            "model",
+            "--output-dir",
+            str(output_dir),
+            "--adapter",
+            "deepseek",
+            "--assembly-mode",
+            "proofnet",
+            "--samples",
+            "1",
+            "--max-model-len",
+            "128",
+            "--max-tokens",
+            "64",
+        ]
+    )
+
+    assert result == 0
+    assert captured["assembled"] == (
+        "lemma helper : True := by trivial\n\n"
+        "theorem target : True := by\n  trivial"
+    )
+    assert captured["rows"][0]["problem_id"].startswith("same_id__row000__")
+    assert captured["rows"][1]["problem_id"].startswith("same_id__row001__")
+    assert (output_dir / "proofnet_duplicate_problem_ids.json").is_file()

@@ -9,6 +9,7 @@ dependencies:
   - pip:
       - pexpect==4.9.0
       - pyyaml==6.0.2
+      - tomli==2.4.1
       - torch==2.6.0
       - transformers==4.51.3
       - vllm==0.8.5.post1

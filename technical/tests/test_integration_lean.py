@@ -3,10 +3,14 @@
 import json
 import os
 import shlex
-import tomllib
 from pathlib import Path
 
 import pytest
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 environment.yml uses tomli.
+    import tomli as tomllib
 
 from technical.src.verification.repl_scheduler import ReplConfig, ReplSession
 from technical.src.verification.verify_standard_repl import DEFAULT_IMPORTS

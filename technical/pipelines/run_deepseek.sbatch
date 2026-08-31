@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Submit with site-specific Slurm resources, for example: sbatch <options> this-file ...
+set -euo pipefail
+
+if (( $# != 7 )); then
+  echo "usage: $0 MODEL_CONFIG RUN_CONFIG INPUT_PATH OUTPUT_DIR MODEL_PATH WORKSPACE REPL_COMMAND" >&2
+  exit 2
+fi
+
+MODEL_CONFIG=$1
+RUN_CONFIG=$2
+INPUT_PATH=$3
+OUTPUT_DIR=$4
+MODEL_PATH=$5
+WORKSPACE=$6
+REPL_COMMAND=$7
+PYTHON_BIN=${PYTHON_BIN:-python}
+
+mkdir -p "${OUTPUT_DIR}"
+rm -f "${OUTPUT_DIR}/COMPLETE"
+
+readarray -t SETTINGS < <("${PYTHON_BIN}" -c '
+import sys
+from pathlib import Path
+from technical.src.config import DEEPSEEK_MODEL_ID, load_config
+model = load_config(Path(sys.argv[1]))
+run = load_config(Path(sys.argv[2]))
+if model["model"]["id"] != DEEPSEEK_MODEL_ID:
+    raise ValueError("MODEL_CONFIG must select DeepSeek-Prover-V2-7B")
+if run["verification"]["mode"] != "full_header_repl":
+    raise ValueError("run verification.mode must be full_header_repl")
+schedule = run["generation"]["sample_schedule"]
+if len(schedule) != 1:
+    raise ValueError("standard DeepSeek pipeline requires one sample stage")
+assembly_mode = "proofnet" if Path(sys.argv[2]).stem == "proofnet" else "standard"
+print(schedule[0])
+print(model["generation"]["seed"])
+print(model["generation"]["temperature"])
+print(model["generation"]["top_p"])
+print(run["generation"]["max_model_len"])
+print(run["generation"]["max_tokens"])
+print(model["model"]["tensor_parallel_size"])
+print(str(model["model"]["trust_remote_code"]).lower())
+print(model["model"]["revision"] or "__NONE__")
+print(run["verification"]["timeout"])
+print(assembly_mode)
+' "${MODEL_CONFIG}" "${RUN_CONFIG}")
+
+SAMPLES=${SETTINGS[0]}
+SEED=${SETTINGS[1]}
+TEMPERATURE=${SETTINGS[2]}
+TOP_P=${SETTINGS[3]}
+MAX_MODEL_LEN=${SETTINGS[4]}
+MAX_TOKENS=${SETTINGS[5]}
+TENSOR_PARALLEL_SIZE=${SETTINGS[6]}
+TRUST_REMOTE_CODE=${SETTINGS[7]}
+REVISION=${SETTINGS[8]}
+PROOF_TIMEOUT=${SETTINGS[9]}
+ASSEMBLY_MODE=${SETTINGS[10]}
+MODEL_ARGS=()
+if [[ "${TRUST_REMOTE_CODE}" == "true" ]]; then
+  MODEL_ARGS+=(--trust-remote-code)
+fi
+if [[ "${REVISION}" != "__NONE__" ]]; then
+  MODEL_ARGS+=(--revision "${REVISION}")
+fi
+
+"${PYTHON_BIN}" -m technical.src.generation.generate \
+  --input "${INPUT_PATH}" \
+  --model-path "${MODEL_PATH}" \
+  --output-dir "${OUTPUT_DIR}" \
+  --adapter deepseek \
+  --assembly-mode "${ASSEMBLY_MODE}" \
+  --samples "${SAMPLES}" \
+  --seed "${SEED}" \
+  --temperature "${TEMPERATURE}" \
+  --top-p "${TOP_P}" \
+  --max-model-len "${MAX_MODEL_LEN}" \
+  --max-tokens "${MAX_TOKENS}" \
+  --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}" \
+  "${MODEL_ARGS[@]}"
+
+"${PYTHON_BIN}" -m technical.src.verification.verify_full_header_repl \
+  --input "${OUTPUT_DIR}/to_inference_codes.json" \
+  --output "${OUTPUT_DIR}/code_compilation_full_header.json" \
+  --workspace "${WORKSPACE}" \
+  --repl-command "${REPL_COMMAND}" \
+  --timeout "${PROOF_TIMEOUT}"
+
+"${PYTHON_BIN}" -m technical.src.evaluation.summarize_passk \
+  --input "${OUTPUT_DIR}/code_compilation_full_header.json" \
+  --full-records "${OUTPUT_DIR}/full_records.json" \
+  --output-dir "${OUTPUT_DIR}/summary"
+
+touch "${OUTPUT_DIR}/COMPLETE"
