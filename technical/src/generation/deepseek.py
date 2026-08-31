@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from technical.src.generation.adapters.deepseek import (
@@ -18,6 +19,21 @@ from technical.src.generation.generate import (
 from technical.src.generation.proof_extraction import ProofAssemblyError
 
 
+_REQUIRED_RAW_CHECKPOINT_FIELDS = (
+    "origin_problem_id",
+    "id_maps",
+    "lean4_code",
+    "model_input",
+    "messages_history_for_this_attempt",
+    "model_output",
+    "raw_response",
+    "full_code",
+    "extraction_status",
+    "finish_reason",
+    "stop_reason",
+)
+
+
 def _validate_checkpoint_prefix(
     records: list[dict], expected: list[dict], samples: int
 ) -> None:
@@ -27,6 +43,11 @@ def _validate_checkpoint_prefix(
         )
 
     for index, (record, attempt) in enumerate(zip(records, expected), start=1):
+        for field in _REQUIRED_RAW_CHECKPOINT_FIELDS:
+            if field not in record:
+                raise ValueError(
+                    f"checkpoint row {index} missing required field {field}"
+                )
         expected_problem_id = attempt["problem_id"]
         if record.get("problem_id") != expected_problem_id:
             raise ValueError(
@@ -34,18 +55,15 @@ def _validate_checkpoint_prefix(
                 f"but found {record.get('problem_id')}"
             )
         expected_origin_id = attempt["origin_problem_id"]
-        if (
-            "origin_problem_id" in record
-            and record["origin_problem_id"] != expected_origin_id
-        ):
+        if record["origin_problem_id"] != expected_origin_id:
             raise ValueError(
                 f"checkpoint row {index} expected origin {expected_origin_id}"
             )
-        if "lean4_code" in record and record["lean4_code"] != attempt["lean4_code"]:
+        if record["lean4_code"] != attempt["lean4_code"]:
             raise ValueError(
                 f"checkpoint row {index} does not match the source Lean code"
             )
-        if "id_maps" in record and record["id_maps"] != attempt["id_maps"]:
+        if record["id_maps"] != attempt["id_maps"]:
             raise ValueError(f"checkpoint row {index} has unexpected id_maps")
 
     if len(records) % samples != 0:
@@ -68,6 +86,7 @@ def _record_from_candidate(
     prompt: str,
     messages: list[dict],
     candidate: Candidate,
+    assembler: Callable[[str, str], str],
 ) -> dict:
     model_output = candidate.text
     record = dict(attempt)
@@ -78,9 +97,7 @@ def _record_from_candidate(
     record["finish_reason"] = candidate.finish_reason
     record["stop_reason"] = candidate.stop_reason
     try:
-        record["full_code"] = assemble_deepseek_submission(
-            attempt["lean4_code"], model_output
-        )
+        record["full_code"] = assembler(attempt["lean4_code"], model_output)
         record["extraction_status"] = "success"
     except ProofAssemblyError as error:
         record["full_code"] = "None"
@@ -98,6 +115,7 @@ def generate_deepseek_records(
     output_dir: Path,
     samples: int,
     generation_offset: int = 0,
+    assembler: Callable[[str, str], str] = assemble_deepseek_submission,
 ) -> tuple[list[dict], list[dict]]:
     """Generate grouped DeepSeek candidates and resume from a valid raw prefix."""
     expected = build_attempts(rows, samples=samples, offset=generation_offset)
@@ -131,6 +149,7 @@ def generate_deepseek_records(
                 prompt=prompt,
                 messages=messages,
                 candidate=candidate,
+                assembler=assembler,
             )
             append_checkpoint(checkpoint_path, record)
             full_records.append(record)

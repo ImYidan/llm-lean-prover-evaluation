@@ -49,6 +49,15 @@ class WrongCandidateCountBackend:
         return [[Candidate("```lean4\ntheorem p : True := by\n  trivial\n```")]]
 
 
+class BackendMustNotBeCalled:
+    def __init__(self):
+        self.calls = 0
+
+    def generate(self, prompts):
+        self.calls += 1
+        raise AssertionError("backend.generate must not be called")
+
+
 def source_rows(count=2):
     return [
         {
@@ -57,6 +66,26 @@ def source_rows(count=2):
         }
         for index in range(count)
     ]
+
+
+def valid_checkpoint_record(problem_id="p0_g4", origin_problem_id="p0"):
+    return {
+        "problem_id": problem_id,
+        "origin_problem_id": origin_problem_id,
+        "id_maps": [
+            {"origin_problem_id": origin_problem_id},
+            {"generation_id": problem_id},
+        ],
+        "lean4_code": f"theorem {origin_problem_id} : True := by sorry",
+        "model_input": "prompt",
+        "messages_history_for_this_attempt": [{"role": "user", "content": "prompt"}],
+        "model_output": "output",
+        "raw_response": "output",
+        "full_code": f"theorem {origin_problem_id} : True := by\n  trivial",
+        "extraction_status": "success",
+        "finish_reason": "stop",
+        "stop_reason": 128001,
+    }
 
 
 def test_grouped_generation_writes_raw_and_normalized_records(tmp_path):
@@ -126,16 +155,84 @@ def test_resume_from_complete_prefix_requests_only_missing_source(tmp_path):
     ]
 
 
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "origin_problem_id",
+        "id_maps",
+        "lean4_code",
+        "model_input",
+        "messages_history_for_this_attempt",
+        "model_output",
+        "raw_response",
+        "full_code",
+        "extraction_status",
+        "finish_reason",
+        "stop_reason",
+    ],
+)
+def test_resume_rejects_missing_raw_checkpoint_fields_before_backend(
+    tmp_path, missing_field
+):
+    """Catch malformed complete-prefix checkpoints before model calls or append."""
+    record = valid_checkpoint_record()
+    record.pop(missing_field)
+    append_checkpoint(tmp_path / "inference.jsonl", record)
+    backend = BackendMustNotBeCalled()
+
+    with pytest.raises(ValueError, match=f"missing required field {missing_field}"):
+        generate_deepseek_records(
+            source_rows(2),
+            tokenizer=FakeTokenizer(),
+            backend=backend,
+            output_dir=tmp_path,
+            samples=1,
+            generation_offset=4,
+        )
+
+    assert backend.calls == 0
+    assert len(load_checkpoint(tmp_path / "inference.jsonl")) == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value", "message"),
+    [
+        ("origin_problem_id", "other", "expected origin p0"),
+        ("lean4_code", "theorem other : True := by sorry", "source Lean code"),
+        (
+            "id_maps",
+            [{"origin_problem_id": "p0"}, {"generation_id": "p0_g9"}],
+            "unexpected id_maps",
+        ),
+    ],
+)
+def test_resume_rejects_conflicting_raw_checkpoint_values_before_backend(
+    tmp_path, field, bad_value, message
+):
+    """Catch corrupt complete-prefix metadata before model calls or append."""
+    record = valid_checkpoint_record()
+    record[field] = bad_value
+    append_checkpoint(tmp_path / "inference.jsonl", record)
+    backend = BackendMustNotBeCalled()
+
+    with pytest.raises(ValueError, match=message):
+        generate_deepseek_records(
+            source_rows(2),
+            tokenizer=FakeTokenizer(),
+            backend=backend,
+            output_dir=tmp_path,
+            samples=1,
+            generation_offset=4,
+        )
+
+    assert backend.calls == 0
+    assert load_checkpoint(tmp_path / "inference.jsonl") == [record]
+
+
 def test_resume_rejects_checkpoint_gap(tmp_path):
     """Catch checkpoints that skip an expected grouped candidate ID."""
-    append_checkpoint(
-        tmp_path / "inference.jsonl",
-        {"problem_id": "p0_g4", "origin_problem_id": "p0"},
-    )
-    append_checkpoint(
-        tmp_path / "inference.jsonl",
-        {"problem_id": "p0_g6", "origin_problem_id": "p0"},
-    )
+    append_checkpoint(tmp_path / "inference.jsonl", valid_checkpoint_record("p0_g4"))
+    append_checkpoint(tmp_path / "inference.jsonl", valid_checkpoint_record("p0_g6"))
 
     with pytest.raises(ValueError, match="checkpoint row 2 expected p0_g5"):
         generate_deepseek_records(
@@ -150,10 +247,7 @@ def test_resume_rejects_checkpoint_gap(tmp_path):
 
 def test_resume_rejects_unexpected_offset(tmp_path):
     """Catch checkpoint prefixes from a different generation offset."""
-    append_checkpoint(
-        tmp_path / "inference.jsonl",
-        {"problem_id": "p0_g3", "origin_problem_id": "p0"},
-    )
+    append_checkpoint(tmp_path / "inference.jsonl", valid_checkpoint_record("p0_g3"))
 
     with pytest.raises(ValueError, match="checkpoint row 1 expected p0_g4"):
         generate_deepseek_records(
@@ -209,6 +303,33 @@ def test_grouped_generation_rejects_candidate_count_mismatch(tmp_path):
             samples=2,
             generation_offset=0,
         )
+
+
+def test_grouped_generation_uses_supplied_assembler(tmp_path):
+    """Catch DeepSeek generation hardcoding the standard assembler."""
+    calls = []
+
+    def target_aware_assembler(statement, model_output):
+        calls.append((statement, model_output))
+        return statement.replace("sorry", "trivial") + "\n-- target-aware"
+
+    full_records, _ = generate_deepseek_records(
+        source_rows(1),
+        tokenizer=FakeTokenizer(),
+        backend=FakeGroupedBackend(1),
+        output_dir=tmp_path,
+        samples=1,
+        generation_offset=4,
+        assembler=target_aware_assembler,
+    )
+
+    assert calls == [
+        (
+            "theorem p0 : True := by sorry",
+            "```lean4\ntheorem generated : True := by\n  trivial\n```",
+        )
+    ]
+    assert full_records[0]["full_code"].endswith("-- target-aware")
 
 
 def test_vllm_backend_preserves_candidate_finish_and_stop_reasons():
