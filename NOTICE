@@ -1,12 +1,34 @@
 This repository contains a portable public evaluation pipeline adapted from
-Goedel-Prover-V2 (https://github.com/Goedel-LM/Goedel-Prover-V2).
+Goedel-Prover-V2:
 
-The technical Python pipeline, shell orchestration, environment and toolchain
-files, and configuration files adapt public upstream material and conventions.
-This includes prompt construction, proof extraction, Lean verification, and
-benchmark-specific evaluation logic. The upstream README identifies
+https://github.com/Goedel-LM/Goedel-Prover-V2
+
+The technical Python pipeline, shell orchestration, environment files,
+toolchain files, and configuration files adapt public upstream material and
+conventions for prompt construction, proof extraction, Lean verification, and
+benchmark-specific evaluation. The upstream README identifies
 Goedel-Prover-V2 as licensed under the Apache License 2.0. This distribution
 retains the Apache License 2.0 text in LICENSE.
 
-The Mathlib4 dependency is separately identified by the repository submodule
-metadata and is not vendored in this source tree.
+DeepSeek-Prover-V2-7B model configuration targets the public model checkpoint:
+
+https://huggingface.co/deepseek-ai/DeepSeek-Prover-V2-7B
+
+This repository records the reviewed model revision in configuration metadata.
+Users supply the model path at run time. This distribution does not include
+model weights or tokenizer snapshots.
+
+Gitlinks, Lake declarations, and Lake manifest pins identify Lean, Mathlib,
+and REPL sources:
+
+https://github.com/leanprover/lean4
+https://github.com/leanprover-community/mathlib4
+https://github.com/leanprover-community/repl
+
+Benchmark data comes from upstream benchmark projects. Users must obtain the
+data from those projects and comply with their licenses:
+
+https://github.com/openai/miniF2F
+https://github.com/zhangir-azerbayev/ProofNet
+https://github.com/leanprover-community/PutnamBench
+https://github.com/frenzymath/FATE

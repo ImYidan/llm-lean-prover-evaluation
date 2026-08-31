@@ -1,17 +1,19 @@
+import json
+import re
 import subprocess
 from pathlib import Path
 
 
 ROOT = Path(__file__).parents[2]
 FORBIDDEN = (
-    "/" + "home/",
-    "/" + "scratch/",
     "Co-" + "authored-by:" + " " + "".join(("C", "o", "d", "e", "x")),
 )
 REQUIRED = (
+    ROOT / "README.md",
     ROOT / ".gitmodules",
     ROOT / "LICENSE",
     ROOT / "NOTICE",
+    ROOT / "docs/deepseek-7b-cot.md",
     ROOT / "technical/environment.yml",
     ROOT / "technical/lean-toolchain",
     ROOT / "technical/lean/fate-v428/lean-toolchain",
@@ -22,6 +24,95 @@ REQUIRED = (
     ROOT / "technical/pipelines/run_deepseek_putnam_chunked.sbatch",
 )
 TEXT_SUFFIXES = {".py", ".sh", ".sbatch", ".yaml", ".yml", ".md", ".txt"}
+GENERATED_OUTPUT_NAMES = {
+    "COMPLETE",
+    "code_compilation_full_header.json",
+    "code_compilation_repl.json",
+    "full_records.json",
+    "inference.jsonl",
+    "meta_summarize.json",
+    "origin_problem_id_summarize.csv",
+    "generation_id_summarize.csv",
+    "progress.json",
+    "proofnet_duplicate_problem_ids.json",
+    "summary.csv",
+    "summary.json",
+    "to_inference_codes.json",
+}
+MODEL_ARTIFACT_SUFFIXES = (
+    ".bin",
+    ".gguf",
+    ".pt",
+    ".pth",
+    ".safetensors",
+)
+MODEL_ARTIFACT_NAMES = {
+    "special_tokens_map.json",
+    "tokenizer.json",
+    "tokenizer.model",
+    "tokenizer_config.json",
+}
+AI_ATTRIBUTION_NAMES = (
+    "".join(("C", "o", "d", "e", "x")),
+    "".join(("C", "h", "a", "t", "G", "P", "T")),
+    "".join(("C", "l", "a", "u", "d", "e")),
+    "".join(("O", "p", "e", "n", "A", "I")),
+)
+REQUIRED_IGNORE_PATTERNS = {
+    "**/COMPLETE",
+    "**/code_compilation_full_header.json",
+    "**/code_compilation_repl.json",
+    "**/full_records.json",
+    "**/generation_id_summarize.csv",
+    "**/inference.jsonl",
+    "**/meta_summarize.json",
+    "**/origin_problem_id_summarize.csv",
+    "**/progress.json",
+    "**/progress_pass*.json",
+    "**/proofnet_duplicate_problem_ids.json",
+    "**/summary.csv",
+    "**/summary.json",
+    "**/to_inference_codes.json",
+    "**/*.bin",
+    "**/*.gguf",
+    "**/*.pt",
+    "**/*.pth",
+    "**/*.safetensors",
+    "**/special_tokens_map.json",
+    "**/tokenizer.json",
+    "**/tokenizer.model",
+    "**/tokenizer_config.json",
+    "**/.cache/",
+    "/checkpoints/",
+    "/data/",
+    "/datasets/",
+    "/logs/",
+    "/models/",
+    "/outputs/",
+    "/results/",
+    "/runs/",
+    "/weights/",
+    "*.err",
+    "*.log",
+    "slurm-*.out",
+    "technical/vendor/**/.lake/",
+}
+BROAD_SOURCE_IGNORE_PATTERNS = {
+    "*.json",
+    "*.jsonl",
+    "*.lean",
+    "*.md",
+    "*.py",
+    "*.sbatch",
+    "*.sh",
+    "*.toml",
+    "*.yaml",
+    "*.yml",
+    "docs/",
+    "technical/",
+    "technical/src/",
+    "technical/tests/",
+}
 EXCLUDED_DIRECTORIES = {
     ".elan",
     ".git",
@@ -39,6 +130,18 @@ ARTIFACT_EXCLUDED_DIRECTORIES = {
     "vendor",
 }
 FORBIDDEN_ARTIFACT_DIRECTORIES = {".lake", ".elan"}
+FORBIDDEN_TOP_LEVEL_ARTIFACT_DIRECTORIES = {
+    ".superpowers",
+    "checkpoints",
+    "data",
+    "datasets",
+    "logs",
+    "models",
+    "outputs",
+    "results",
+    "runs",
+    "weights",
+}
 FORBIDDEN_COMPILED_SUFFIXES = (
     ".olean",
     ".olean.trace",
@@ -49,6 +152,10 @@ FORBIDDEN_COMPILED_SUFFIXES = (
     ".dll",
 )
 FATE_PROFILE = ROOT / "technical/lean/fate-v428"
+MATHLIB_428_REV = "8f9d9cff6bd728b17a24e163c9402775d9e6a365"
+MATHLIB_428_URL = "https://github.com/leanprover-community/mathlib4.git"
+REPL_428_REV = "527590ce2b9f3b5c4a9a1031e5b8fcfb909b9a4a"
+REPL_428_URL = "https://github.com/leanprover-community/repl.git"
 FATE_VENDOR_DIRECTORIES = {
     "aesop",
     "batteries",
@@ -72,6 +179,37 @@ DEEPSEEK_PIPELINES = (
     ROOT / "technical/pipelines/run_deepseek_putnam_chunked.sbatch",
 )
 PIPELINES = GOEDEL_PIPELINES + DEEPSEEK_PIPELINES
+TEXT_VIOLATION_PATTERNS = (
+    ("private_path", re.compile(r"/(?:home|scratch)/[A-Za-z0-9._~/-]+")),
+    (
+        "private_key",
+        re.compile(
+            r"BEGIN (?:RSA|OPENSSH|EC|DSA) PRIVATE KEY",
+            flags=re.IGNORECASE,
+        ),
+    ),
+    (
+        "credential_assignment",
+        re.compile(
+            r"\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|hf[_-]?token)"
+            r"\s*[:=]\s*[\"']?[A-Za-z0-9_./+=-]{12,}",
+            flags=re.IGNORECASE,
+        ),
+    ),
+    ("secret_token", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
+    (
+        "attribution_trailer",
+        re.compile("Co-" + "authored-by:", flags=re.IGNORECASE),
+    ),
+    (
+        "generated_attribution",
+        re.compile(
+            r"(?:generated|written|built)\s+by\s+"
+            + rf"(?:{'|'.join(re.escape(name) for name in AI_ATTRIBUTION_NAMES)})",
+            flags=re.IGNORECASE,
+        ),
+    ),
+)
 
 
 def _last_effective_line(text: str) -> str:
@@ -109,6 +247,14 @@ def _is_technical_text_file(path: Path) -> bool:
     return path.suffix in TEXT_SUFFIXES or path.suffix == ""
 
 
+def _clean_gitignore_patterns(path: Path) -> set[str]:
+    return {
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+
 def public_text_paths(root: Path) -> set[Path]:
     """Return public text files while excluding repository metadata directories."""
     paths = {path for path in _required_paths(root) if path.is_file()}
@@ -126,6 +272,15 @@ def public_text_paths(root: Path) -> set[Path]:
             and not _is_excluded(path, root)
             and _is_technical_text_file(path)
         )
+    docs_root = root / "docs"
+    if docs_root.is_dir():
+        paths.update(
+            path
+            for path in docs_root.rglob("*")
+            if path.is_file()
+            and not _is_excluded(path, root)
+            and _is_technical_text_file(path)
+        )
     return paths
 
 
@@ -137,7 +292,19 @@ def find_public_text_violations(root: Path) -> list[tuple[str, str]]:
         for forbidden in FORBIDDEN:
             if forbidden in text:
                 violations.append((path.relative_to(root).as_posix(), forbidden))
+        for label, pattern in TEXT_VIOLATION_PATTERNS:
+            if pattern.search(text):
+                violations.append((path.relative_to(root).as_posix(), label))
     return violations
+
+
+def _is_forbidden_generated_artifact(path: Path) -> bool:
+    return (
+        path.name in GENERATED_OUTPUT_NAMES
+        or (path.name.startswith("progress_pass") and path.suffix == ".json")
+        or path.name in MODEL_ARTIFACT_NAMES
+        or path.name.endswith(MODEL_ARTIFACT_SUFFIXES)
+    )
 
 
 def find_forbidden_public_artifacts(root: Path) -> list[str]:
@@ -154,7 +321,13 @@ def find_forbidden_public_artifacts(root: Path) -> list[str]:
         parts = relative.parts
         if ARTIFACT_EXCLUDED_DIRECTORIES.intersection(parts):
             continue
+        if parts and parts[0] in FORBIDDEN_TOP_LEVEL_ARTIFACT_DIRECTORIES:
+            violations.append(relative.as_posix())
+            continue
         if FORBIDDEN_ARTIFACT_DIRECTORIES.intersection(parts):
+            violations.append(relative.as_posix())
+            continue
+        if _is_forbidden_generated_artifact(path):
             violations.append(relative.as_posix())
             continue
         if path.is_file() and path.name.endswith(FORBIDDEN_COMPILED_SUFFIXES):
@@ -183,18 +356,96 @@ def _git_tracked_files(root: Path) -> list[Path] | None:
     return [Path(line) for line in result.stdout.splitlines() if line]
 
 
+def _tracked_public_violations(root: Path) -> list[str]:
+    tracked_files = _git_tracked_files(root)
+    if tracked_files is None:
+        return []
+
+    violations = []
+    for tracked_file in tracked_files:
+        parts = tracked_file.parts
+        path = root / tracked_file
+        if parts and parts[0] in FORBIDDEN_TOP_LEVEL_ARTIFACT_DIRECTORIES:
+            violations.append(tracked_file.as_posix())
+        elif ".cache" in parts:
+            violations.append(tracked_file.as_posix())
+        elif _is_forbidden_generated_artifact(path):
+            violations.append(tracked_file.as_posix())
+    return violations
+
+
+def test_release_gitignore_covers_generated_outputs_without_hiding_source_files():
+    """Catch a release ignore file that permits outputs or masks source."""
+    patterns = _clean_gitignore_patterns(ROOT / ".gitignore")
+
+    assert REQUIRED_IGNORE_PATTERNS <= patterns
+    assert BROAD_SOURCE_IGNORE_PATTERNS.isdisjoint(patterns)
+
+
+def test_deepseek_operation_docs_cover_public_release_contract():
+    """Catch a public guide that omits a required release contract."""
+    text = (ROOT / "docs/deepseek-7b-cot.md").read_text(encoding="utf-8")
+
+    required_terms = (
+        "--model-path",
+        "deepseek-ai/DeepSeek-Prover-V2-7B",
+        "a8d9e14432b2e8dd9df2a4d4e70f1ba9bc8d9b7b",
+        "miniF2F",
+        "ProofNet",
+        "PutnamBench",
+        "FATE-M",
+        "FATE-H",
+        "inference.jsonl",
+        "full_records.json",
+        "to_inference_codes.json",
+        "code_compilation_repl.json",
+        "code_compilation_full_header.json",
+        "meta_summarize.json",
+        "mathlib-v49",
+        "fate-v428",
+        "Lean v4.28.0",
+        "LEAN_TEST_WORKSPACE",
+        "LEAN_TEST_REPL_COMMAND",
+        "network",
+        "credential",
+        "COMPLETE",
+        "TARGET_PASS",
+        "Pass@32",
+    )
+    for term in required_terms:
+        assert term in text
+
+
+def test_fate_v428_profile_pins_direct_github_sources():
+    """Catch a FATE profile that loses direct upstream source pins."""
+    lakefile = (FATE_PROFILE / "lakefile.toml").read_text(encoding="utf-8")
+    assert MATHLIB_428_URL in lakefile
+    assert REPL_428_URL in lakefile
+    assert MATHLIB_428_REV in lakefile
+    assert REPL_428_REV in lakefile
+
+    manifest = json.loads(
+        (FATE_PROFILE / "lake-manifest.json").read_text(encoding="utf-8")
+    )
+    packages = {package["name"].lower(): package for package in manifest["packages"]}
+    assert packages["mathlib"]["url"] == MATHLIB_428_URL
+    assert packages["mathlib"]["rev"] == MATHLIB_428_REV
+    assert packages["repl"]["url"] == REPL_428_URL
+    assert packages["repl"]["rev"] == REPL_428_REV
+
+
 def test_extensionless_technical_file_is_scanned_for_forbidden_markers(
     tmp_path: Path,
 ):
     """Catch a scanner that only considers suffix-based technical files."""
     lean_toolchain = tmp_path / "technical/lean-toolchain"
     lean_toolchain.parent.mkdir()
-    marker = "/" + "home/"
+    marker = "/" + "home/private"
     lean_toolchain.write_text(marker, encoding="utf-8")
 
     violations = find_public_text_violations(tmp_path)
 
-    assert ("technical/lean-toolchain", marker) in violations
+    assert ("technical/lean-toolchain", "private_path") in violations
 
 
 def test_public_text_files_have_no_private_paths_or_ai_attribution():
@@ -202,6 +453,11 @@ def test_public_text_files_have_no_private_paths_or_ai_attribution():
     assert all(path.is_file() for path in REQUIRED)
 
     assert find_public_text_violations(ROOT) == []
+
+
+def test_tracked_files_exclude_internal_outputs_weights_and_caches():
+    """Catch private planning files and generated artifacts in Git."""
+    assert _tracked_public_violations(ROOT) == []
 
 
 def test_public_tree_omits_generated_lean_artifacts_and_fate_dependency_trees(
@@ -217,8 +473,40 @@ def test_public_tree_omits_generated_lean_artifacts_and_fate_dependency_trees(
     )
     (tmp_path / "technical/lean/fate-v428/.elan").mkdir()
     (tmp_path / "technical/lean/fate-v428/repl").mkdir()
+    (tmp_path / "technical/lean/fate-v428/build").mkdir()
+    (tmp_path / "technical/lean/fate-v428/build/Foo.o").write_text(
+        "",
+        encoding="utf-8",
+    )
     (tmp_path / "technical/vendor/mathlib4/.lake/build/Mathlib.olean").mkdir(
         parents=True
+    )
+    (tmp_path / "runs/deepseek").mkdir(parents=True)
+    (tmp_path / "runs/deepseek/inference.jsonl").write_text(
+        "{}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "runs/deepseek/full_records.json").write_text(
+        "[]",
+        encoding="utf-8",
+    )
+    (tmp_path / "runs/deepseek/progress_pass8.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
+    (tmp_path / "models/deepseek").mkdir(parents=True)
+    (tmp_path / "models/deepseek/model.safetensors").write_text(
+        "",
+        encoding="utf-8",
+    )
+    (tmp_path / "models/deepseek/tokenizer.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
+    (tmp_path / "data/private_benchmark.jsonl").parent.mkdir(parents=True)
+    (tmp_path / "data/private_benchmark.jsonl").write_text(
+        "{}\n",
+        encoding="utf-8",
     )
 
     violations = find_forbidden_public_artifacts(tmp_path)
@@ -226,6 +514,13 @@ def test_public_tree_omits_generated_lean_artifacts_and_fate_dependency_trees(
     assert "technical/lean/fate-v428/.lake" in violations
     assert "technical/lean/fate-v428/.elan" in violations
     assert "technical/lean/fate-v428/repl" in violations
+    assert "technical/lean/fate-v428/build/Foo.o" in violations
+    assert "runs/deepseek/inference.jsonl" in violations
+    assert "runs/deepseek/full_records.json" in violations
+    assert "runs/deepseek/progress_pass8.json" in violations
+    assert "models/deepseek/model.safetensors" in violations
+    assert "models/deepseek/tokenizer.json" in violations
+    assert "data/private_benchmark.jsonl" in violations
     assert "technical/vendor/mathlib4/.lake" not in violations
 
 

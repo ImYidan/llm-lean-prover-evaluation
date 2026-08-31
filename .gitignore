@@ -1,6 +1,49 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.superpowers/
+
+# Generated evaluation outputs.
+/checkpoints/
+/data/
+/datasets/
+/logs/
+/models/
+/outputs/
+/results/
+/runs/
+/weights/
+*.err
+*.log
+slurm-*.out
+**/COMPLETE
+**/code_compilation_full_header.json
+**/code_compilation_repl.json
+**/full_records.json
+**/generation_id_summarize.csv
+**/inference.jsonl
+**/meta_summarize.json
+**/origin_problem_id_summarize.csv
+**/progress.json
+**/progress_pass*.json
+**/proofnet_duplicate_problem_ids.json
+**/summary.csv
+**/summary.json
+**/to_inference_codes.json
+
+# Model weights, tokenizer snapshots, and download caches.
+**/.cache/
+**/*.bin
+**/*.gguf
+**/*.pt
+**/*.pth
+**/*.safetensors
+**/special_tokens_map.json
+**/tokenizer.json
+**/tokenizer.model
+**/tokenizer_config.json
+
+# Lean build products and local toolchain installs.
 technical/lean/**/.lake/
 technical/lean/**/.elan/
 technical/lean/**/*.olean
@@ -10,3 +53,4 @@ technical/lean/**/*.o
 technical/lean/**/*.so
 technical/lean/**/*.dylib
 technical/lean/**/*.dll
+technical/vendor/**/.lake/
