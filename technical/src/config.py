@@ -25,6 +25,7 @@ BENCHMARK_GENERATION_KEYS = ("strategy",)
 VERIFICATION_KEYS = ("mode", "timeout")
 RUN_GENERATION_KEYS = ("sample_schedule", "max_model_len", "max_tokens")
 LEAN_PROFILE_KEYS = ("profile",)
+RUN_VERIFICATION_MODES = ("full_header_repl",)
 
 
 def _require_mapping(config: dict[str, Any], section: str) -> dict[str, Any]:
@@ -100,6 +101,10 @@ def _validate_run_config(config: dict[str, Any]) -> None:
         raise ValueError("generation.max_tokens must be less than generation.max_model_len")
     if not isinstance(lean["profile"], str) or not lean["profile"]:
         raise ValueError("lean.profile must be a non-empty string")
+    if not isinstance(verification["mode"], str):
+        raise ValueError("verification.mode must be a string")
+    if verification["mode"] not in RUN_VERIFICATION_MODES:
+        raise ValueError(f"unsupported verification.mode: {verification['mode']}")
 
 
 def load_config(path: Path) -> dict:

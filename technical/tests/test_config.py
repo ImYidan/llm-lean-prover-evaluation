@@ -131,3 +131,35 @@ verification:
 
     with pytest.raises(ValueError, match="missing required section: lean"):
         load_config(path)
+
+
+@pytest.mark.parametrize(
+    ("mode", "message"),
+    [
+        ("42", "verification.mode must be a string"),
+        ("standard_repl", "unsupported verification.mode: standard_repl"),
+    ],
+    ids=("wrong-type", "unsupported-mode"),
+)
+def test_load_config_rejects_invalid_run_profile_verification_mode(
+    tmp_path: Path, mode: str, message: str
+):
+    """Catch a run profile selecting an unchecked verifier implementation."""
+    path = tmp_path / "run.yaml"
+    path.write_text(
+        f"""\
+generation:
+  sample_schedule: [32]
+  max_model_len: 32768
+  max_tokens: 8192
+lean:
+  profile: mathlib-v49
+verification:
+  mode: {mode}
+  timeout: 300
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=message):
+        load_config(path)
