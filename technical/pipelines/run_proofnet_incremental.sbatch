@@ -36,7 +36,6 @@ print(benchmark["verification"]["timeout"])
 ' "${MODEL_CONFIG}" "${BENCHMARK_CONFIG}")
 
 MODEL_ARGS=()
-MAX_TOKENS=$((SETTINGS[2] - 1))
 if [[ "${SETTINGS[4]}" == "true" ]]; then
   MODEL_ARGS+=(--trust-remote-code)
 fi
@@ -52,7 +51,7 @@ fi
   --temperature "${SETTINGS[0]}" \
   --top-p "${SETTINGS[1]}" \
   --max-model-len "${SETTINGS[2]}" \
-  --max-tokens "${MAX_TOKENS}" \
+  --max-tokens "${SETTINGS[2]}" \
   --tensor-parallel-size "${SETTINGS[3]}" \
   --timeout "${SETTINGS[6]}" \
   "${MODEL_ARGS[@]}"

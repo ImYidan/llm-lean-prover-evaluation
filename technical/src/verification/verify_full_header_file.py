@@ -62,7 +62,8 @@ def parse_lean_output(text: str) -> list[dict]:
     return messages
 
 
-def _empty_result(system_errors: str | None) -> dict:
+def empty_compilation_result(system_errors: str | None) -> dict:
+    """Return the stable non-complete result used for skipped or failed input."""
     return {
         "sorries": [],
         "tactics": [],
@@ -97,7 +98,7 @@ def verify_file_record(
         raise ValueError("record is missing a problem identifier")
     code = select_code(record, code_field)
     if not code.strip() or code == "None":
-        compilation_result = _empty_result(None)
+        compilation_result = empty_compilation_result(None)
         return {
             "name": name,
             "problem_id": name,
@@ -157,7 +158,7 @@ def verify_file_record(
             "timed_out": False,
         }
     except subprocess.TimeoutExpired as error:
-        compilation_result = _empty_result(f"TIMEOUT ERROR: {error}")
+        compilation_result = empty_compilation_result(f"TIMEOUT ERROR: {error}")
     finally:
         if temporary_path is not None:
             try:

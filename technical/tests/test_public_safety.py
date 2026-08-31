@@ -23,20 +23,6 @@ REQUIRED = (
     ROOT / "technical/pipelines/run_deepseek.sbatch",
     ROOT / "technical/pipelines/run_deepseek_putnam_chunked.sbatch",
 )
-TEXT_SUFFIXES = {
-    ".csv",
-    ".json",
-    ".jsonl",
-    ".lean",
-    ".md",
-    ".py",
-    ".sbatch",
-    ".sh",
-    ".toml",
-    ".txt",
-    ".yaml",
-    ".yml",
-}
 GENERATED_OUTPUT_NAMES = {
     "COMPLETE",
     "code_compilation_full_header.json",
@@ -48,6 +34,7 @@ GENERATED_OUTPUT_NAMES = {
     "generation_id_summarize.csv",
     "progress.json",
     "proofnet_duplicate_problem_ids.json",
+    "run_manifest.json",
     "summary.csv",
     "summary.json",
     "to_inference_codes.json",
@@ -86,9 +73,12 @@ REQUIRED_IGNORE_PATTERNS = {
     "**/progress.json",
     "**/progress_pass*.json",
     "**/proofnet_duplicate_problem_ids.json",
+    "**/run_manifest.json",
     "**/summary.csv",
     "**/summary.json",
     "**/to_inference_codes.json",
+    "**/.run_manifest.json.lock",
+    "**/.finalize*.lock",
     "**/*.bin",
     "**/*.gguf",
     "**/*.pt",
@@ -136,6 +126,7 @@ EXCLUDED_DIRECTORIES = {
     ".pytest_cache",
     ".superpowers",
     "__pycache__",
+    "build",
     "vendor",
 }
 ARTIFACT_EXCLUDED_DIRECTORIES = {
@@ -209,7 +200,8 @@ TEXT_VIOLATION_PATTERNS = (
         re.compile(
             r"\b(?:export\s+)?(?:[A-Z0-9]+[_-])*"
             r"(?:api[_-]?key|access[_-]?token|secret[_-]?key|hf[_-]?token|"
-            r"auth[_-]?token|bearer[_-]?token)"
+            r"auth[_-]?token|bearer[_-]?token|password|client[_-]?secret|"
+            r"private[_-]?token)"
             r"\s*[:=]\s*[\"']?[A-Za-z0-9_./+=-]{12,}",
             flags=re.IGNORECASE,
         ),
@@ -246,15 +238,6 @@ ALLOWED_TEST_POLICY_FRAGMENTS = (
 )
 
 
-def _last_effective_line(text: str) -> str:
-    lines = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#"):
-            lines.append(stripped)
-    return lines[-1]
-
-
 def _line_number(text: str, needle: str) -> int:
     for index, line in enumerate(text.splitlines(), start=1):
         if needle in line:
@@ -262,23 +245,8 @@ def _line_number(text: str, needle: str) -> int:
     raise AssertionError(f"{needle!r} not found")
 
 
-def _required_paths(root: Path) -> tuple[Path, ...]:
-    return (
-        root / ".gitmodules",
-        root / "LICENSE",
-        root / "NOTICE",
-        root / "technical/environment.yml",
-        root / "technical/lean-toolchain",
-        root / "technical/configs/models/goedel-prover-v2-32b.yaml",
-    )
-
-
 def _is_excluded(path: Path, root: Path) -> bool:
     return bool(EXCLUDED_DIRECTORIES.intersection(path.relative_to(root).parts))
-
-
-def _is_technical_text_file(path: Path) -> bool:
-    return path.suffix in TEXT_SUFFIXES or path.suffix == ""
 
 
 def _clean_gitignore_patterns(path: Path) -> set[str]:
@@ -290,31 +258,25 @@ def _clean_gitignore_patterns(path: Path) -> set[str]:
 
 
 def public_text_paths(root: Path) -> set[Path]:
-    """Return public text files while excluding repository metadata directories."""
-    paths = {path for path in _required_paths(root) if path.is_file()}
-    paths.update(path for path in root.glob("README*") if path.is_file())
-    paths.update(
-        path for path in (root / ".gitignore", root / "pytest.ini") if path.is_file()
+    """Return every tracked/non-ignored UTF-8 release text file below ``root``."""
+    release_files = _git_release_files(root)
+    candidates = (
+        (root / release_file for release_file in release_files)
+        if release_files is not None
+        else root.rglob("*")
     )
-
-    technical_root = root / "technical"
-    if technical_root.is_dir():
-        paths.update(
-            path
-            for path in technical_root.rglob("*")
-            if path.is_file()
-            and not _is_excluded(path, root)
-            and _is_technical_text_file(path)
-        )
-    docs_root = root / "docs"
-    if docs_root.is_dir():
-        paths.update(
-            path
-            for path in docs_root.rglob("*")
-            if path.is_file()
-            and not _is_excluded(path, root)
-            and _is_technical_text_file(path)
-        )
+    paths = set()
+    for path in candidates:
+        if not path.is_file() or _is_excluded(path, root):
+            continue
+        try:
+            data = path.read_bytes()
+            if b"\0" in data:
+                continue
+            data.decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        paths.add(path)
     return paths
 
 
@@ -352,6 +314,8 @@ def _is_forbidden_generated_artifact(path: Path) -> bool:
     return (
         path.name in GENERATED_OUTPUT_NAMES
         or (path.name.startswith("progress_pass") and path.suffix == ".json")
+        or (path.name.startswith(".finalize") and path.suffix == ".lock")
+        or path.name == ".run_manifest.json.lock"
         or path.name in MODEL_ARTIFACT_NAMES
         or path.name.endswith(MODEL_ARTIFACT_SUFFIXES)
     )
@@ -475,6 +439,9 @@ def test_deepseek_operation_docs_cover_public_release_contract():
         "COMPLETE",
         "TARGET_PASS",
         "Pass@32",
+        "run_manifest.json",
+        "hash-bound",
+        "extraction_status",
     )
     for term in required_terms:
         assert term in text
@@ -558,6 +525,10 @@ def test_public_tree_omits_generated_lean_artifacts_and_fate_dependency_trees(
         "{}",
         encoding="utf-8",
     )
+    (tmp_path / "runs/deepseek/run_manifest.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
     (tmp_path / "models/deepseek").mkdir(parents=True)
     (tmp_path / "models/deepseek/model.safetensors").write_text(
         "",
@@ -582,6 +553,7 @@ def test_public_tree_omits_generated_lean_artifacts_and_fate_dependency_trees(
     assert "runs/deepseek/inference.jsonl" in violations
     assert "runs/deepseek/full_records.json" in violations
     assert "runs/deepseek/progress_pass8.json" in violations
+    assert "runs/deepseek/run_manifest.json" in violations
     assert "models/deepseek/model.safetensors" in violations
     assert "models/deepseek/tokenizer.json" in violations
     assert "data/private_benchmark.jsonl" in violations
@@ -677,6 +649,33 @@ def test_public_text_scan_catches_prefixed_credentials_and_attribution_forms(
     assert all(path != "docs/model.md" for path, _ in violations)
 
 
+def test_public_text_scan_covers_all_tracked_and_nonignored_release_text(tmp_path):
+    """Catch root-level or newly added release directories escaping the scan."""
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    tracked = tmp_path / "release.env"
+    tracked.write_text("path=/" + "home/private/tracked\n", encoding="utf-8")
+    subprocess.run(["git", "add", "release.env"], cwd=tmp_path, check=True)
+    untracked = tmp_path / "new-area/settings.conf"
+    untracked.parent.mkdir()
+    secret_names = [
+        "PASS" + "WORD",
+        "CLIENT" + "_SECRET",
+        "PRIVATE" + "_TOKEN",
+    ]
+    untracked.write_text(
+        "\n".join(f"{name}=abcd1234abcd1234" for name in secret_names) + "\n",
+        encoding="utf-8",
+    )
+    binary = tmp_path / "new-area/blob.bin"
+    binary.write_bytes(b"\x00/" + b"home/private/binary")
+
+    violations = set(find_public_text_violations(tmp_path))
+
+    assert ("release.env", "private_path") in violations
+    assert ("new-area/settings.conf", "credential_assignment") in violations
+    assert all(path != "new-area/blob.bin" for path, _ in violations)
+
+
 def test_slurm_pipelines_are_portable_and_fail_fast():
     assert all(path.is_file() for path in PIPELINES)
     expected_modules = {
@@ -702,7 +701,7 @@ def test_slurm_pipelines_are_portable_and_fail_fast():
             "technical.src.benchmarks.putnam_chunking",
             "technical.src.generation.generate",
             "technical.src.verification.verify_full_header_repl",
-            "technical.src.evaluation.summarize_passk",
+            "technical.src.run_manifest",
         ),
     }
     for path in PIPELINES:
@@ -745,23 +744,37 @@ def test_deepseek_pipelines_use_profiles_adapter_and_shared_verifier():
         assert 'run["assembly"]["mode"]' in text
         assert "Path(sys.argv[2]).stem" not in text
         assert "--assembly-mode" in text
-        assert "rm -f" in text and "COMPLETE" in text
+        assert "technical.src.lean_profiles" in text
+        assert _line_number(text, "technical.src.lean_profiles") < _line_number(
+            text, "technical.src.generation.generate"
+        )
+        assert _line_number(text, "technical.src.lean_profiles") < _line_number(
+            text, "technical.src.verification.verify_full_header_repl"
+        )
+        assert "technical.src.run_manifest ensure" in text
+        assert "rm -f" not in text
+        assert "COMPLETE" in text
 
     assert "RUN_CONFIG" in standard
-    assert _last_effective_line(standard) == 'touch "${OUTPUT_DIR}/COMPLETE"'
+    assert "check-marker" in standard and "write-marker" in standard
+    assert _line_number(standard, "technical.src.evaluation.summarize_passk") < _line_number(
+        standard, "write-marker"
+    )
+    assert 'touch "${OUTPUT_DIR}/COMPLETE"' not in standard
 
     assert 'run["assembly"]["mode"] != "standard"' in putnam
-    assert 'if [[ "${GLOBAL_COMPLETE}" == "true" ]]; then' in putnam
-    assert _line_number(putnam, "putnam_chunking progress") < _line_number(
-        putnam, "putnam_chunking is-complete"
+    assert "putnam_chunking finalize" in putnam
+    assert "check-marker" in putnam and "write-marker" in putnam
+    assert _line_number(putnam, "technical.src.run_manifest ensure") < _line_number(
+        putnam, 'mkdir -p "${STAGE_DIR}"'
     )
-    assert _line_number(putnam, "putnam_chunking is-complete") < _line_number(
-        putnam, "technical.src.evaluation.summarize_passk"
+    assert "putnam_chunking progress" not in putnam
+    assert "putnam_chunking is-complete" not in putnam
+    assert "technical.src.evaluation.summarize_passk" not in putnam
+    assert _line_number(putnam, "write-marker") < _line_number(
+        putnam, "putnam_chunking finalize"
     )
-    assert _line_number(putnam, "technical.src.evaluation.summarize_passk") < _line_number(
-        putnam, 'touch "${OUTPUT_DIR}/COMPLETE"'
-    )
-    assert _last_effective_line(putnam) != 'touch "${OUTPUT_DIR}/COMPLETE"'
+    assert 'touch "${OUTPUT_DIR}/COMPLETE"' not in putnam
 
 
 def test_slurm_scripts_contain_no_private_runtime_paths_or_weights():
@@ -805,6 +818,20 @@ def test_runtime_dependencies_and_pipeline_configs_are_effective():
     for pipeline in (standard, proofnet, putnam):
         assert "tensor_parallel_size" in pipeline
         assert "trust_remote_code" in pipeline
+
+
+def test_goedel_pipelines_preserve_full_context_token_defaults():
+    """Catch DeepSeek headroom rules changing historical Goedel wrapper values."""
+    standard, proofnet, putnam = (
+        path.read_text(encoding="utf-8") for path in GOEDEL_PIPELINES
+    )
+
+    assert 'MAX_TOKENS=$((MAX_MODEL_LEN - 1))' not in standard
+    assert '--max-tokens "${MAX_MODEL_LEN}"' in standard
+    assert 'MAX_TOKENS=$((SETTINGS[2] - 1))' not in proofnet
+    assert '--max-tokens "${SETTINGS[2]}"' in proofnet
+    assert 'MAX_TOKENS=$((SETTINGS[2] - 1))' not in putnam
+    assert '--max-tokens "${SETTINGS[2]}"' in putnam
 
 
 def test_technical_readme_documents_the_public_data_flow_and_inputs():

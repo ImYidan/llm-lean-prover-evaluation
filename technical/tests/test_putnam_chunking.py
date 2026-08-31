@@ -1,15 +1,23 @@
 """Tests for Putnam JSONL chunking, merging, and progress summaries."""
 
 import json
+import threading
 from pathlib import Path
 
 from technical.src.benchmarks.putnam_chunking import (
     chunk_bounds,
+    finalization_lock,
+    finalize_putnam_target,
     is_global_progress_complete,
     merge_putnam_stages,
     merge_json_lists,
     split_jsonl,
     summarize_chunk_progress,
+)
+from technical.src.run_manifest import (
+    build_run_manifest,
+    ensure_run_manifest,
+    write_completion_marker,
 )
 
 
@@ -17,6 +25,72 @@ ROOT = Path(__file__).parents[2]
 DEEPSEEK_PUTNAM_PIPELINE = (
     ROOT / "technical/pipelines/run_deepseek_putnam_chunked.sbatch"
 )
+MODEL_CONFIG = ROOT / "technical/configs/models/deepseek-prover-v2-7b.yaml"
+RUN_CONFIG = ROOT / "technical/configs/runs/deepseek/putnam.yaml"
+
+
+def _run_manifest(tmp_path, chunks=2):
+    input_path = tmp_path / "putnam.jsonl"
+    input_path.write_text(
+        "".join(
+            json.dumps({"problem_id": f"p{index}"}) + "\n"
+            for index in range(chunks)
+        ),
+        encoding="utf-8",
+    )
+    manifest = build_run_manifest(
+        model_config_path=MODEL_CONFIG,
+        run_config_path=RUN_CONFIG,
+        input_path=input_path,
+        pipeline="deepseek-putnam",
+        chunk_count=chunks,
+    )
+    path = tmp_path / "output/run_manifest.json"
+    ensure_run_manifest(path, manifest)
+    return path, manifest
+
+
+def _write_cumulative_chunk(output_dir, manifest, index, target_pass=1):
+    directory = output_dir / f"chunks/chunk_{index}/cumulative_pass{target_pass}"
+    directory.mkdir(parents=True)
+    identifier = f"p{index}_g0"
+    full = [
+        {
+            "problem_id": identifier,
+            "origin_problem_id": f"p{index}",
+            "id_maps": [
+                {"origin_problem_id": f"p{index}"},
+                {"generation_id": identifier},
+            ],
+            "finish_reason": "stop",
+            "extraction_status": "success",
+        }
+    ]
+    inference = [{"problem_id": identifier, "origin_problem_id": f"p{index}"}]
+    verification = [
+        {
+            "name": identifier,
+            "code": f"theorem p{index} : True := by trivial",
+            "compilation_result": {"complete": index == 0},
+        }
+    ]
+    (directory / "full_records.json").write_text(json.dumps(full), encoding="utf-8")
+    (directory / "to_inference_codes.json").write_text(
+        json.dumps(inference), encoding="utf-8"
+    )
+    (directory / "code_compilation_full_header.json").write_text(
+        json.dumps(verification), encoding="utf-8"
+    )
+    write_completion_marker(
+        directory / "COMPLETE",
+        manifest,
+        {
+            "kind": "putnam-cumulative",
+            "chunk_index": index,
+            "target_pass": target_pass,
+        },
+    )
+    return directory
 
 
 def test_chunk_bounds_cover_even_and_uneven_inputs_without_overlap():
@@ -129,6 +203,77 @@ def test_global_progress_complete_requires_no_missing_chunks():
         raise AssertionError("progress without missing_chunks was accepted")
 
 
+def test_putnam_finalization_lock_serializes_concurrent_callers(tmp_path):
+    """Catch concurrent Slurm callers entering one target finalizer together."""
+    lock_path = tmp_path / "finalize.lock"
+    started = threading.Event()
+    entered = threading.Event()
+
+    def contender():
+        started.set()
+        with finalization_lock(lock_path):
+            entered.set()
+
+    with finalization_lock(lock_path):
+        thread = threading.Thread(target=contender)
+        thread.start()
+        assert started.wait(1)
+        assert not entered.wait(0.05)
+    assert entered.wait(1)
+    thread.join(timeout=1)
+    assert not thread.is_alive()
+
+
+def test_putnam_finalizer_gates_completion_and_stale_partial_cannot_overwrite(
+    tmp_path,
+):
+    """Catch a late partial scan replacing already completed global data."""
+    manifest_path, manifest = _run_manifest(tmp_path, chunks=2)
+    output_dir = manifest_path.parent
+    chunk0 = _write_cumulative_chunk(output_dir, manifest, 0)
+
+    partial = finalize_putnam_target(
+        output_dir=output_dir,
+        total_chunks=2,
+        target_pass=1,
+        run_manifest_path=manifest_path,
+    )
+
+    global_dir = output_dir / "cumulative_pass1"
+    assert partial["status"] == "partial"
+    assert partial["missing_chunks"] == [1]
+    assert not (global_dir / "COMPLETE").exists()
+    assert not (output_dir / "COMPLETE").exists()
+
+    chunk1 = _write_cumulative_chunk(output_dir, manifest, 1)
+    complete = finalize_putnam_target(
+        output_dir=output_dir,
+        total_chunks=2,
+        target_pass=1,
+        run_manifest_path=manifest_path,
+    )
+    published = (global_dir / "full_records.json").read_bytes()
+
+    assert complete["status"] == "complete"
+    assert complete["missing_chunks"] == []
+    assert (global_dir / "COMPLETE").is_file()
+    assert (output_dir / "COMPLETE").is_file()
+    assert (global_dir / "summary/meta_summarize.json").is_file()
+    assert len(json.loads(published)) == 2
+
+    (chunk1 / "COMPLETE").unlink()
+    (chunk0 / "full_records.json").write_text("[]", encoding="utf-8")
+    stale = finalize_putnam_target(
+        output_dir=output_dir,
+        total_chunks=2,
+        target_pass=1,
+        run_manifest_path=manifest_path,
+    )
+
+    assert stale["status"] == "already_complete"
+    assert (global_dir / "full_records.json").read_bytes() == published
+
+
 def test_cumulative_stage_merge_requires_exact_generation_prefix(tmp_path):
     stage0 = tmp_path / "stage0"
     stage1 = tmp_path / "stage1"
@@ -193,17 +338,9 @@ def test_deepseek_putnam_pipeline_declares_exact_cumulative_stages():
     assert "--adapter" in text and "deepseek" in text
     assert "putnam_chunking split" in text
     assert "putnam_chunking cumulative" in text
-    assert "putnam_chunking merge" in text
-    assert "putnam_chunking progress" in text
-    assert "putnam_chunking is-complete" in text
-    assert "technical.src.evaluation.summarize_passk" in text
-    assert '[[ ! -f "${required}/COMPLETE" ]]' in text
-    assert 'touch "${CUMULATIVE_DIR}/COMPLETE"' in text
-    assert 'touch "${OUTPUT_DIR}/COMPLETE"' in text
-    assert text.rfind("putnam_chunking progress") < text.rfind("putnam_chunking is-complete")
-    assert text.rfind("putnam_chunking is-complete") < text.rfind(
-        "technical.src.evaluation.summarize_passk"
-    )
-    assert text.rfind("technical.src.evaluation.summarize_passk") < text.rfind(
-        'touch "${OUTPUT_DIR}/COMPLETE"'
-    )
+    assert "putnam_chunking finalize" in text
+    assert "technical.src.run_manifest" in text
+    assert "check-marker" in text
+    assert "write-marker" in text
+    assert 'touch "${CUMULATIVE_DIR}/COMPLETE"' not in text
+    assert 'touch "${OUTPUT_DIR}/COMPLETE"' not in text

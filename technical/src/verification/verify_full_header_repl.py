@@ -16,7 +16,11 @@ from technical.src.verification.repl_scheduler import (
     parse_repl_response,
     system_failure_result,
 )
-from technical.src.verification.verify_full_header_file import load_records, select_code
+from technical.src.verification.verify_full_header_file import (
+    empty_compilation_result,
+    load_records,
+    select_code,
+)
 
 
 REPL_RESPONSE_KEYS = {"messages", "sorries", "tactics", "env"}
@@ -125,13 +129,29 @@ class FullHeaderReplSession:
 
 def _verify_partition(indexed_records, config, code_field, session_factory):
     results = []
-    session = session_factory(config)
+    session = None
     try:
         for index, record in indexed_records:
             name = record.get("problem_id") or record.get("name")
             if name is None:
                 raise ValueError("record is missing a problem identifier")
             code = select_code(record, code_field)
+            if not code.strip() or code == "None":
+                results.append(
+                    (
+                        index,
+                        {
+                            "name": name,
+                            "problem_id": name,
+                            "code": code,
+                            "compilation_result": empty_compilation_result(None),
+                            "verify_time": 0.0,
+                        },
+                    )
+                )
+                continue
+            if session is None:
+                session = session_factory(config)
             started = time.monotonic()
             compilation_result = session.verify(code)
             results.append(
@@ -148,9 +168,10 @@ def _verify_partition(indexed_records, config, code_field, session_factory):
             )
             if compilation_result.get("system_errors") is not None:
                 session.close()
-                session = session_factory(config)
+                session = None
     finally:
-        session.close()
+        if session is not None:
+            session.close()
     return results
 
 

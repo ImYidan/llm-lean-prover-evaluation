@@ -188,6 +188,7 @@ def create_vllm_backend(
     revision: str | None = None,
     dtype: str = "auto",
     gpu_memory_utilization: float = 0.90,
+    adapter: str = "goedel",
 ):
     """Create real tokenizer/backend objects while keeping imports lazy."""
     validate_generation_options(
@@ -196,6 +197,7 @@ def create_vllm_backend(
         max_tokens=max_tokens,
         dtype=dtype,
         gpu_memory_utilization=gpu_memory_utilization,
+        adapter=adapter,
     )
     from transformers import AutoTokenizer
     from vllm import LLM, SamplingParams
@@ -229,11 +231,16 @@ def validate_generation_options(
     max_tokens: int,
     dtype: str = "auto",
     gpu_memory_utilization: float = 0.90,
+    adapter: str = "goedel",
 ) -> None:
     """Reject invalid generation limits before loading optional model backends."""
     if samples < 1:
         raise ValueError("samples must be positive")
-    if max_tokens >= max_model_len:
+    if adapter not in {"goedel", "deepseek"}:
+        raise ValueError(f"unsupported generation adapter: {adapter}")
+    if max_tokens > max_model_len:
+        raise ValueError("max_tokens must not exceed max_model_len")
+    if adapter == "deepseek" and max_tokens == max_model_len:
         raise ValueError("max_tokens must be less than max_model_len")
     if not isinstance(dtype, str) or not dtype.strip():
         raise ValueError("dtype must be a non-empty string")
@@ -264,7 +271,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--max-model-len", type=int, default=32768)
-    parser.add_argument("--max-tokens", type=int, default=32767)
+    parser.add_argument("--max-tokens", type=int, default=32768)
     parser.add_argument("--tensor-parallel-size", type=int, default=4)
     parser.add_argument("--dtype", default="auto")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.90)
@@ -285,6 +292,7 @@ def main(argv: list[str] | None = None) -> int:
             max_tokens=args.max_tokens,
             dtype=args.dtype,
             gpu_memory_utilization=args.gpu_memory_utilization,
+            adapter=args.adapter,
         )
     except ValueError as error:
         raise SystemExit(str(error)) from error
@@ -302,13 +310,16 @@ def main(argv: list[str] | None = None) -> int:
         revision=args.revision,
         dtype=args.dtype,
         gpu_memory_utilization=args.gpu_memory_utilization,
+        adapter=args.adapter,
     )
     if args.adapter == "deepseek":
         assembler = None
         if args.assembly_mode == "proofnet":
             from technical.src.benchmarks.proofnet import (
-                assemble_proofnet_model_output,
                 prepare_unique_rows,
+            )
+            from technical.src.generation.adapters.deepseek import (
+                assemble_deepseek_proofnet_submission,
             )
 
             rows, duplicate_report = prepare_unique_rows(rows)
@@ -316,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.output_dir / "proofnet_duplicate_problem_ids.json",
                 duplicate_report,
             )
-            assembler = assemble_proofnet_model_output
+            assembler = assemble_deepseek_proofnet_submission
 
         from technical.src.generation.deepseek import generate_deepseek_records
 

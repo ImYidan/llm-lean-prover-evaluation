@@ -89,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--max-model-len", type=int, default=32768)
-    parser.add_argument("--max-tokens", type=int, default=32767)
+    parser.add_argument("--max-tokens", type=int, default=32768)
     parser.add_argument("--tensor-parallel-size", type=int, default=4)
     parser.add_argument("--chunk-size", type=int, default=128)
     parser.add_argument("--trust-remote-code", action="store_true")

@@ -10,7 +10,11 @@ from technical.src.generation.adapters.deepseek import (
     assemble_deepseek_submission,
 )
 from technical.src.generation.candidates import Candidate
-from technical.src.generation.checkpoints import append_checkpoint, load_checkpoint
+from technical.src.generation.checkpoints import (
+    CheckpointWriter,
+    load_checkpoint,
+    truncate_checkpoint,
+)
 from technical.src.generation.generate import (
     _atomic_write_json,
     build_attempts,
@@ -48,6 +52,53 @@ def _validate_checkpoint_prefix(
                 raise ValueError(
                     f"checkpoint row {index} missing required field {field}"
                 )
+        for field in (
+            "model_input",
+            "model_output",
+            "raw_response",
+            "full_code",
+            "extraction_status",
+        ):
+            if not isinstance(record[field], str):
+                raise ValueError(f"checkpoint row {index} {field} must be a string")
+        messages = record["messages_history_for_this_attempt"]
+        if not isinstance(messages, list):
+            raise ValueError(
+                f"checkpoint row {index} messages_history_for_this_attempt "
+                "must be a list"
+            )
+        if not all(isinstance(message, dict) for message in messages):
+            raise ValueError(
+                f"checkpoint row {index} messages_history_for_this_attempt "
+                "must contain objects"
+            )
+        if record["finish_reason"] is not None and not isinstance(
+            record["finish_reason"], str
+        ):
+            raise ValueError(
+                f"checkpoint row {index} finish_reason must be a string or null"
+            )
+        stop_reason = record["stop_reason"]
+        if stop_reason is not None and (
+            isinstance(stop_reason, bool)
+            or not isinstance(stop_reason, (str, int))
+        ):
+            raise ValueError(
+                f"checkpoint row {index} stop_reason must be a string, integer, or null"
+            )
+        if record["raw_response"] != record["model_output"]:
+            raise ValueError(
+                f"checkpoint row {index} raw_response must equal model_output"
+            )
+        extraction_succeeded = record["extraction_status"] == "success"
+        if extraction_succeeded and record["full_code"] == "None":
+            raise ValueError(
+                f"checkpoint row {index} successful extraction must contain full_code"
+            )
+        if not extraction_succeeded and record["full_code"] != "None":
+            raise ValueError(
+                f"checkpoint row {index} failed extraction must use full_code None"
+            )
         expected_problem_id = attempt["problem_id"]
         if record.get("problem_id") != expected_problem_id:
             raise ValueError(
@@ -65,11 +116,6 @@ def _validate_checkpoint_prefix(
             )
         if record["id_maps"] != attempt["id_maps"]:
             raise ValueError(f"checkpoint row {index} has unexpected id_maps")
-
-    if len(records) % samples != 0:
-        raise ValueError(
-            "checkpoint must end after a complete source problem candidate group"
-        )
 
 
 def _write_normalized_outputs(output_dir: Path, full_records: list[dict]) -> None:
@@ -129,6 +175,12 @@ def generate_deepseek_records(
     checkpoint_path = output_dir / "inference.jsonl"
     full_records = load_checkpoint(checkpoint_path)
     _validate_checkpoint_prefix(full_records, expected, samples)
+    incomplete_candidates = len(full_records) % samples
+    if incomplete_candidates:
+        keep_records = len(full_records) - incomplete_candidates
+        truncate_checkpoint(checkpoint_path, keep_records)
+        full_records = full_records[:keep_records]
+    checkpoint_writer = CheckpointWriter(checkpoint_path, records=full_records)
 
     next_source_index = len(full_records) // samples
     adapter = DeepSeekPromptAdapter()
@@ -157,7 +209,7 @@ def generate_deepseek_records(
                 candidate=candidate,
                 assembler=assembler,
             )
-            append_checkpoint(checkpoint_path, record)
+            checkpoint_writer.append(record)
             full_records.append(record)
         _write_normalized_outputs(output_dir, full_records)
 

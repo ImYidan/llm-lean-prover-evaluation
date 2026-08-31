@@ -12,6 +12,7 @@ from technical.src.generation.proof_extraction import (
 )
 
 
+_TASK_PREFIX = "Complete the following Lean 4 code:"
 _DETAILED_PROOF_PLAN_INSTRUCTION = (
     "Before producing the Lean 4 code to formally prove the given theorem, "
     "provide a detailed proof plan outlining the main proof steps and strategies.\n"
@@ -21,6 +22,20 @@ _DETAILED_PROOF_PLAN_INSTRUCTION = (
 _BLOCKED_PROOF_TOKEN = re.compile(
     r"(?<![\w'])(sorry|admit|apply\?|exact\?)(?![\w'])"
 )
+
+
+def deepseek_prompt_contract() -> dict:
+    """Return the stable public semantics hashed into reusable run manifests."""
+    return {
+        "version": 1,
+        "task_prefix": _TASK_PREFIX,
+        "detailed_proof_plan_instruction": _DETAILED_PROOF_PLAN_INSTRUCTION,
+        "chat_template": {
+            "implementation": "tokenizer.apply_chat_template",
+            "tokenize": False,
+            "add_generation_prompt": True,
+        },
+    }
 
 
 class DeepSeekPromptAdapter:
@@ -35,7 +50,7 @@ class DeepSeekPromptAdapter:
             else benchmark_row
         )
         content = (
-            "Complete the following Lean 4 code:\n\n"
+            f"{_TASK_PREFIX}\n\n"
             f"```lean4\n{lean4_code}\n```\n\n"
             f"{_DETAILED_PROOF_PLAN_INSTRUCTION}"
         )
@@ -63,3 +78,13 @@ def extract_deepseek_proof(model_output: str) -> str:
 def assemble_deepseek_submission(statement: str, model_output: str) -> str:
     """Assemble extracted DeepSeek code with the locked benchmark theorem."""
     return replace_theorem_body(statement, extract_deepseek_proof(model_output))
+
+
+def assemble_deepseek_proofnet_submission(
+    statement: str, model_output: str
+) -> str:
+    """Apply DeepSeek extraction policy before target-aware ProofNet assembly."""
+    generated_code = extract_deepseek_proof(model_output)
+    from technical.src.benchmarks.proofnet import assemble_proofnet_submission
+
+    return assemble_proofnet_submission(statement, generated_code)

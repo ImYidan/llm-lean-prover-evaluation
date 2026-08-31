@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
+from collections import Counter
 from pathlib import Path
+
+from technical.src.run_manifest import atomic_write_text
 
 
 def _mapping_values(id_map: list[dict]) -> dict[str, object]:
@@ -18,7 +22,10 @@ def _mapping_values(id_map: list[dict]) -> dict[str, object]:
 
 
 def summarize(
-    records: list[dict], id_maps: dict[str, list[dict]], field: str = "complete"
+    records: list[dict],
+    id_maps: dict[str, list[dict]],
+    field: str = "complete",
+    generation_records: list[dict] | None = None,
 ) -> dict:
     """Calculate solved counts while enforcing forbidden-tactic policy."""
     if field not in {"complete", "pass"}:
@@ -36,7 +43,11 @@ def summarize(
             raise ValueError(f"missing id_maps for generation: {name}")
         code = str(record.get("code", ""))
         compilation = record.get("compilation_result", {})
-        correct = bool(compilation.get(field)) and "apply?" not in code and "exact?" not in code
+        correct = (
+            bool(compilation.get(field))
+            and "apply?" not in code
+            and "exact?" not in code
+        )
         mapping_values = _mapping_values(id_maps[name])
         normalized_records.append(
             {"name": name, "correct": correct, "id_maps": mapping_values}
@@ -58,20 +69,45 @@ def summarize(
             "solved_ratio": f"{solved_num / problem_num * 100:.2f}",
             "details": details,
         }
-    return {"field": field, "levels": levels, "records": normalized_records}
+    result = {"field": field, "levels": levels, "records": normalized_records}
+    if generation_records is not None:
+        result["generation_outcomes"] = {
+            "total": len(generation_records),
+            "finish_reason": dict(
+                sorted(
+                    Counter(
+                        "null"
+                        if record.get("finish_reason") is None
+                        else str(record.get("finish_reason"))
+                        for record in generation_records
+                    ).items()
+                )
+            ),
+            "extraction_status": dict(
+                sorted(
+                    Counter(
+                        "null"
+                        if record.get("extraction_status") is None
+                        else str(record.get("extraction_status"))
+                        for record in generation_records
+                    ).items()
+                )
+            ),
+        }
+    return result
 
 
-def _write_outputs(output_dir: Path, result: dict) -> None:
+def write_summary_outputs(output_dir: Path, result: dict) -> None:
+    """Atomically write the historical summary files and outcome metadata."""
     output_dir.mkdir(parents=True, exist_ok=True)
     meta = []
     for level, summary in result["levels"].items():
-        with (output_dir / f"{level}_summarize.csv").open(
-            "w", encoding="utf-8", newline=""
-        ) as handle:
-            writer = csv.writer(handle, delimiter="\t", quoting=csv.QUOTE_ALL)
-            writer.writerow([level, "sum", "count"])
-            for value, detail in summary["details"].items():
-                writer.writerow([value, detail["correct"], detail["count"]])
+        handle = io.StringIO(newline="")
+        writer = csv.writer(handle, delimiter="\t", quoting=csv.QUOTE_ALL)
+        writer.writerow([level, "sum", "count"])
+        for value, detail in summary["details"].items():
+            writer.writerow([value, detail["correct"], detail["count"]])
+        atomic_write_text(output_dir / f"{level}_summarize.csv", handle.getvalue())
         meta.append(
             {
                 "level": level,
@@ -81,8 +117,11 @@ def _write_outputs(output_dir: Path, result: dict) -> None:
                 },
             }
         )
-    (output_dir / "meta_summarize.json").write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    if "generation_outcomes" in result:
+        meta.append({"generation_outcomes": result["generation_outcomes"]})
+    atomic_write_text(
+        output_dir / "meta_summarize.json",
+        json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
     )
 
 
@@ -102,7 +141,15 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(records, list) or not isinstance(full_records, list):
         raise ValueError("summary inputs must be JSON arrays")
     maps = {record["problem_id"]: record["id_maps"] for record in full_records}
-    _write_outputs(args.output_dir, summarize(records, maps, args.field))
+    write_summary_outputs(
+        args.output_dir,
+        summarize(
+            records,
+            maps,
+            args.field,
+            generation_records=full_records,
+        ),
+    )
     return 0
 
 

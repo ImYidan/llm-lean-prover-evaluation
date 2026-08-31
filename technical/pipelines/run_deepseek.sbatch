@@ -15,16 +15,24 @@ MODEL_PATH=$5
 WORKSPACE=$6
 REPL_COMMAND=$7
 PYTHON_BIN=${PYTHON_BIN:-python}
+RUN_MANIFEST=${OUTPUT_DIR}/run_manifest.json
 
 mkdir -p "${OUTPUT_DIR}"
-rm -f "${OUTPUT_DIR}/COMPLETE"
+"${PYTHON_BIN}" -m technical.src.run_manifest ensure \
+  --manifest "${RUN_MANIFEST}" \
+  --model-config "${MODEL_CONFIG}" \
+  --run-config "${RUN_CONFIG}" \
+  --input "${INPUT_PATH}" \
+  --pipeline deepseek-standard \
+  --chunks 1
 
 readarray -t SETTINGS < <("${PYTHON_BIN}" -c '
 import sys
 from pathlib import Path
-from technical.src.config import DEEPSEEK_MODEL_ID, load_config
+from technical.src.config import DEEPSEEK_MODEL_ID, load_config, validate_model_run_config
 model = load_config(Path(sys.argv[1]))
 run = load_config(Path(sys.argv[2]))
+validate_model_run_config(model, run)
 if model["model"]["id"] != DEEPSEEK_MODEL_ID:
     raise ValueError("MODEL_CONFIG must select DeepSeek-Prover-V2-7B")
 if run["verification"]["mode"] != "full_header_repl":
@@ -46,6 +54,7 @@ print(str(model["model"]["trust_remote_code"]).lower())
 print(model["model"]["revision"] or "__NONE__")
 print(run["verification"]["timeout"])
 print(assembly_mode)
+print(run["lean"]["profile"])
 ' "${MODEL_CONFIG}" "${RUN_CONFIG}")
 
 SAMPLES=${SETTINGS[0]}
@@ -61,12 +70,26 @@ TRUST_REMOTE_CODE=${SETTINGS[9]}
 REVISION=${SETTINGS[10]}
 PROOF_TIMEOUT=${SETTINGS[11]}
 ASSEMBLY_MODE=${SETTINGS[12]}
+LEAN_PROFILE=${SETTINGS[13]}
 MODEL_ARGS=()
 if [[ "${TRUST_REMOTE_CODE}" == "true" ]]; then
   MODEL_ARGS+=(--trust-remote-code)
 fi
 if [[ "${REVISION}" != "__NONE__" ]]; then
   MODEL_ARGS+=(--revision "${REVISION}")
+fi
+
+"${PYTHON_BIN}" -m technical.src.lean_profiles \
+  --profile "${LEAN_PROFILE}" \
+  --workspace "${WORKSPACE}" \
+  --repl-command "${REPL_COMMAND}"
+
+if [[ -f "${OUTPUT_DIR}/COMPLETE" ]]; then
+  "${PYTHON_BIN}" -m technical.src.run_manifest check-marker \
+    --manifest "${RUN_MANIFEST}" \
+    --marker "${OUTPUT_DIR}/COMPLETE" \
+    --binding kind=standard
+  exit 0
 fi
 
 "${PYTHON_BIN}" -m technical.src.generation.generate \
@@ -98,4 +121,7 @@ fi
   --full-records "${OUTPUT_DIR}/full_records.json" \
   --output-dir "${OUTPUT_DIR}/summary"
 
-touch "${OUTPUT_DIR}/COMPLETE"
+"${PYTHON_BIN}" -m technical.src.run_manifest write-marker \
+  --manifest "${RUN_MANIFEST}" \
+  --marker "${OUTPUT_DIR}/COMPLETE" \
+  --binding kind=standard

@@ -120,8 +120,10 @@ def _validate_run_config(config: dict[str, Any]) -> None:
     _require_positive_int(generation["max_model_len"], "generation.max_model_len")
     _require_positive_int(generation["max_tokens"], "generation.max_tokens")
     _require_positive_int(verification["timeout"], "verification.timeout")
-    if generation["max_tokens"] >= generation["max_model_len"]:
-        raise ValueError("generation.max_tokens must be less than generation.max_model_len")
+    if generation["max_tokens"] > generation["max_model_len"]:
+        raise ValueError(
+            "generation.max_tokens must not exceed generation.max_model_len"
+        )
     if not isinstance(lean["profile"], str) or not lean["profile"]:
         raise ValueError("lean.profile must be a non-empty string")
     if not isinstance(verification["mode"], str):
@@ -132,6 +134,19 @@ def _validate_run_config(config: dict[str, Any]) -> None:
         raise ValueError("assembly.mode must be a string")
     if assembly["mode"] not in RUN_ASSEMBLY_MODES:
         raise ValueError(f"unsupported assembly.mode: {assembly['mode']}")
+
+
+def validate_model_run_config(model_config: dict, run_config: dict) -> None:
+    """Validate cross-profile constraints that depend on the selected model."""
+    model = _require_mapping(model_config, "model")
+    generation = _require_mapping(run_config, "generation")
+    if (
+        model.get("id") == DEEPSEEK_MODEL_ID
+        and generation["max_tokens"] >= generation["max_model_len"]
+    ):
+        raise ValueError(
+            "generation.max_tokens must be less than generation.max_model_len"
+        )
 
 
 def load_config(path: Path) -> dict:

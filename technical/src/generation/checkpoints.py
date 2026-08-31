@@ -91,22 +91,57 @@ def _recover_final_line_before_append(path: Path) -> bool:
     return True
 
 
-def append_checkpoint(path: Path, record: dict) -> None:
-    """Durably append one unique JSONL checkpoint record."""
+def truncate_checkpoint(path: Path, keep_records: int) -> None:
+    """Durably truncate a checkpoint after ``keep_records`` complete rows."""
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    records = load_checkpoint(path)
-    index_checkpoint([*records, record])
-    needs_separator = (
-        _recover_final_line_before_append(path) if path.exists() else False
-    )
-    serialized = json.dumps(
-        record, ensure_ascii=False, allow_nan=False, separators=(",", ":")
-    )
-    with path.open("a", encoding="utf-8") as handle:
-        if needs_separator:
-            handle.write("\n")
-        handle.write(serialized)
-        handle.write("\n")
+    if keep_records < 0:
+        raise ValueError("keep_records must be non-negative")
+    lines = _checkpoint_lines(path)
+    if keep_records > len(lines):
+        raise ValueError("cannot retain more checkpoint records than exist")
+    boundary = sum(len(line) for line in lines[:keep_records])
+    with path.open("r+b") as handle:
+        handle.truncate(boundary)
         handle.flush()
         os.fsync(handle.fileno())
+
+
+class CheckpointWriter:
+    """Stateful durable writer that validates the existing checkpoint once."""
+
+    def __init__(self, path: Path, records: list[dict] | None = None) -> None:
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        loaded = load_checkpoint(self.path) if records is None else records
+        self._indexed = index_checkpoint(loaded)
+        self._needs_separator = (
+            _recover_final_line_before_append(self.path)
+            if self.path.exists()
+            else False
+        )
+
+    def append(self, record: dict) -> None:
+        """Validate and fsync one new unique checkpoint record."""
+        candidate = index_checkpoint([record])
+        problem_id = next(iter(candidate))
+        if problem_id in self._indexed:
+            if self._indexed[problem_id] == record:
+                raise CheckpointError(f"duplicate problem_id: {problem_id}")
+            raise CheckpointError(f"conflicting problem_id: {problem_id}")
+        serialized = json.dumps(
+            record, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        )
+        with self.path.open("a", encoding="utf-8") as handle:
+            if self._needs_separator:
+                handle.write("\n")
+            handle.write(serialized)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        self._needs_separator = False
+        self._indexed[problem_id] = record
+
+
+def append_checkpoint(path: Path, record: dict) -> None:
+    """Durably append one unique JSONL checkpoint record."""
+    CheckpointWriter(path).append(record)

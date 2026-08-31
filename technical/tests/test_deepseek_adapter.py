@@ -4,6 +4,7 @@ import pytest
 
 from technical.src.generation.adapters.deepseek import (
     DeepSeekPromptAdapter,
+    assemble_deepseek_proofnet_submission,
     assemble_deepseek_submission,
     extract_deepseek_proof,
 )
@@ -75,3 +76,16 @@ def test_assembly_uses_the_locked_benchmark_header():
     assert assemble_deepseek_submission(statement, output) == (
         "theorem target : True := by\n  trivial"
     )
+
+
+@pytest.mark.parametrize("token", ["sorry", "admit", "apply?", "exact?"])
+def test_proofnet_assembly_applies_deepseek_blocked_token_policy(token):
+    """Catch ProofNet target-aware assembly bypassing model extraction policy."""
+    statement = (
+        "lemma helper : True := by trivial\n\n"
+        "theorem target : True := by sorry"
+    )
+    output = f"```lean4\ntheorem target : True := by {token}\n```"
+
+    with pytest.raises(ProofAssemblyError, match="blocked proof token"):
+        assemble_deepseek_proofnet_submission(statement, output)

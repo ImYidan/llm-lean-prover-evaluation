@@ -82,6 +82,12 @@ Use `technical/pipelines/run_deepseek.sbatch` for miniF2F, ProofNet, FATE-M,
 and FATE-H. The script reads sampling, verification, and assembly settings from
 the model and run profiles.
 
+Before any output is reused, the wrapper creates or validates
+`run_manifest.json`. Its stable hashes bind the model revision, effective
+sampling, prompt contract, assembly mode, Lean and verification settings,
+input bytes, and chunk count without recording local paths. A conflict, or an
+existing artifact directory without a manifest, fails closed.
+
 ```bash
 sbatch <site-options> technical/pipelines/run_deepseek.sbatch \
   technical/configs/models/deepseek-prover-v2-7b.yaml \
@@ -124,10 +130,10 @@ The final five arguments in the example request 8 chunks, chunk index 0,
 7 samples, generation offset 1, and `TARGET_PASS=8`. That stage requires the
 same chunk's completed Pass@1 stage.
 
-The root `<output-dir>/COMPLETE` marker means all marker-backed chunks for the
-current validated `TARGET_PASS` exist and the summarizer wrote the shared
-summary.
-It does not imply Pass@32 unless `TARGET_PASS=32`.
+The root `<output-dir>/COMPLETE` marker records the highest completed
+`TARGET_PASS`: all manifest-bound chunks exist and the summarizer wrote that
+target's shared summary. It does not imply Pass@32 unless its hash-bound JSON
+payload records `TARGET_PASS=32`.
 
 ## Outputs
 
@@ -143,15 +149,19 @@ DeepSeek generation writes raw checkpoints before it rewrites normalized JSON:
 - `code_compilation_full_header.json` stores Lean verification results.
 - `summary/origin_problem_id_summarize.csv`,
   `summary/generation_id_summarize.csv`, and `summary/meta_summarize.json`
-  store Pass@k summaries.
-- `COMPLETE` marks a completed standard run.
+  store Pass@k summaries. Metadata counts `finish_reason` and
+  `extraction_status` separately from Lean results.
+- `run_manifest.json` binds reusable artifacts to stable public semantics.
+- `COMPLETE` is an atomic, hash-bound JSON marker for a completed standard
+  run.
 
 Putnam chunked runs also write:
 
 - `chunks/chunk_<n>/stage_offset_<offset>_add_<samples>/COMPLETE` after a
-  stage passes generation and verification.
+  stage passes generation and verification; the marker is manifest-bound.
 - `chunks/chunk_<n>/cumulative_pass<TARGET_PASS>/COMPLETE` after the chunk
-  cumulative files pass prefix validation.
+  cumulative files pass prefix validation; the marker also binds the chunk
+  index and target.
 - `progress_pass<TARGET_PASS>.json` at the root output directory.
 - `cumulative_pass<TARGET_PASS>/summary/*` after every chunk for that
   `TARGET_PASS` has a completion marker.
@@ -162,15 +172,19 @@ wrappers write `code_compilation_full_header.json`.
 ## Resume Rules
 
 `inference.jsonl` is append-only. On restart, the loader accepts complete
-UTF-8 JSONL records and may discard one interrupted final line. It rejects
+UTF-8 JSONL records and may discard one interrupted final line. If a crash
+leaves a valid but incomplete terminal prompt group, the loader durably
+truncates only that terminal group and regenerates it. It rejects
 blank interior lines, malformed interior JSON, non-object records, duplicate
 generation IDs, conflicting IDs, source mismatches, generation gaps, and a
-candidate count that ends inside a prompt group.
+candidate count outside the requested range.
 
-Putnam stages resume through marker-backed directories. A later stage reads
-prerequisite stage directories that contain `COMPLETE`. The cumulative step
-validates the exact generation prefix for each original problem before it
-writes merged files.
+Putnam stages resume only through manifest-bound marker directories. A later
+stage validates prerequisite markers before reuse. The cumulative step
+validates the exact generation prefix for each original problem. Finalization
+uses a portable per-target file lock, rescans every chunk while holding it,
+and publishes arrays, progress, summary, then the target marker. A stale
+partial finalizer therefore cannot overwrite already completed global data.
 
 ## Verification Commands
 

@@ -7,11 +7,19 @@ import types
 import pytest
 
 from technical.src.benchmarks.proofnet import assemble_proofnet_model_output
+from technical.src.benchmarks.run_proofnet_incremental import (
+    build_parser as build_proofnet_parser,
+)
 from technical.src.generation import generate as generate_cli
 from technical.src.generation.candidates import Candidate
 from technical.src.generation.checkpoints import append_checkpoint, load_checkpoint
 from technical.src.generation.deepseek import generate_deepseek_records
-from technical.src.generation.generate import _VllmBackend, build_parser, create_vllm_backend
+from technical.src.generation.generate import (
+    _VllmBackend,
+    build_parser,
+    create_vllm_backend,
+    validate_generation_options,
+)
 
 
 class FakeTokenizer:
@@ -165,6 +173,37 @@ def test_resume_from_complete_prefix_requests_only_missing_source(tmp_path):
     ]
 
 
+def test_resume_truncates_only_incomplete_terminal_candidate_group(tmp_path):
+    """Catch a mid-group crash making an otherwise valid checkpoint unusable."""
+    completed = [
+        valid_checkpoint_record("p0_g4"),
+        valid_checkpoint_record("p0_g5"),
+    ]
+    partial = valid_checkpoint_record("p1_g4", origin_problem_id="p1")
+    for record in [*completed, partial]:
+        append_checkpoint(tmp_path / "inference.jsonl", record)
+    backend = FakeGroupedBackend(2)
+
+    full_records, _ = generate_deepseek_records(
+        source_rows(2),
+        tokenizer=FakeTokenizer(),
+        backend=backend,
+        output_dir=tmp_path,
+        samples=2,
+        generation_offset=4,
+    )
+
+    assert len(backend.prompts) == 1
+    assert full_records[:2] == completed
+    assert [record["problem_id"] for record in full_records] == [
+        "p0_g4",
+        "p0_g5",
+        "p1_g4",
+        "p1_g5",
+    ]
+    assert full_records[2]["model_output"] != partial["model_output"]
+
+
 @pytest.mark.parametrize(
     "missing_field",
     [
@@ -237,6 +276,83 @@ def test_resume_rejects_conflicting_raw_checkpoint_values_before_backend(
 
     assert backend.calls == 0
     assert load_checkpoint(tmp_path / "inference.jsonl") == [record]
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value", "message"),
+    [
+        ("model_input", 3, "model_input must be a string"),
+        (
+            "messages_history_for_this_attempt",
+            {},
+            "messages_history_for_this_attempt must be a list",
+        ),
+        ("model_output", 3, "model_output must be a string"),
+        ("full_code", None, "full_code must be a string"),
+        ("extraction_status", None, "extraction_status must be a string"),
+        ("finish_reason", 3, "finish_reason must be a string or null"),
+        ("stop_reason", [], "stop_reason must be a string, integer, or null"),
+    ],
+)
+def test_resume_rejects_malformed_checkpoint_field_types_before_backend(
+    tmp_path, field, bad_value, message
+):
+    """Catch malformed checkpoint values reaching normalization or model calls."""
+    record = valid_checkpoint_record()
+    record[field] = bad_value
+    append_checkpoint(tmp_path / "inference.jsonl", record)
+    backend = BackendMustNotBeCalled()
+
+    with pytest.raises(ValueError, match=message):
+        generate_deepseek_records(
+            source_rows(1),
+            tokenizer=FakeTokenizer(),
+            backend=backend,
+            output_dir=tmp_path,
+            samples=1,
+            generation_offset=4,
+        )
+
+    assert backend.calls == 0
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda record: record.update(raw_response="different"),
+            "raw_response must equal model_output",
+        ),
+        (
+            lambda record: record.update(full_code="None", extraction_status="success"),
+            "successful extraction must contain full_code",
+        ),
+        (
+            lambda record: record.update(extraction_status="blocked proof token"),
+            "failed extraction must use full_code None",
+        ),
+    ],
+)
+def test_resume_rejects_inconsistent_checkpoint_fields_before_backend(
+    tmp_path, mutate, message
+):
+    """Catch internally conflicting raw checkpoint fields before reuse."""
+    record = valid_checkpoint_record()
+    mutate(record)
+    append_checkpoint(tmp_path / "inference.jsonl", record)
+    backend = BackendMustNotBeCalled()
+
+    with pytest.raises(ValueError, match=message):
+        generate_deepseek_records(
+            source_rows(1),
+            tokenizer=FakeTokenizer(),
+            backend=backend,
+            output_dir=tmp_path,
+            samples=1,
+            generation_offset=4,
+        )
+
+    assert backend.calls == 0
 
 
 def test_resume_rejects_checkpoint_gap(tmp_path):
@@ -471,8 +587,10 @@ def test_vllm_sampling_params_receives_samples_per_prompt(monkeypatch):
     assert captured["llm"]["gpu_memory_utilization"] == 0.75
 
 
-def test_vllm_backend_rejects_max_tokens_at_model_limit_before_import(monkeypatch):
-    """Catch validation that happens after importing optional heavy backends."""
+def test_vllm_backend_rejects_deepseek_max_tokens_at_model_limit_before_import(
+    monkeypatch,
+):
+    """Catch DeepSeek headroom validation happening after heavy backend imports."""
     monkeypatch.delitem(sys.modules, "transformers", raising=False)
     monkeypatch.delitem(sys.modules, "vllm", raising=False)
 
@@ -486,6 +604,7 @@ def test_vllm_backend_rejects_max_tokens_at_model_limit_before_import(monkeypatc
             top_p=0.95,
             max_tokens=128,
             samples_per_prompt=1,
+            adapter="deepseek",
         )
 
 
@@ -556,7 +675,34 @@ def test_cli_defaults_to_goedel_adapter():
     )
 
     assert args.adapter == "goedel"
-    assert args.max_tokens < args.max_model_len
+    assert args.max_tokens == args.max_model_len == 32768
+
+
+def test_goedel_generation_validation_allows_token_limit_equality():
+    """Keep the historical Goedel equality usable beyond parser defaults."""
+    validate_generation_options(
+        samples=1,
+        max_model_len=32768,
+        max_tokens=32768,
+    )
+
+
+def test_proofnet_incremental_defaults_keep_goedel_token_limit_equality():
+    """Keep the historical ProofNet Goedel CLI token default unchanged."""
+    args = build_proofnet_parser().parse_args(
+        [
+            "--input",
+            "input.jsonl",
+            "--model-path",
+            "model",
+            "--output-dir",
+            "out",
+            "--workspace",
+            "workspace",
+        ]
+    )
+
+    assert args.max_tokens == args.max_model_len == 32768
 
 
 def test_cli_accepts_deepseek_adapter():

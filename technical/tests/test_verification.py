@@ -325,3 +325,66 @@ def test_full_header_workers_reuse_one_persistent_session(tmp_path):
 
     assert [result["name"] for result in results] == ["p_g0", "p_g1", "p_g2"]
     assert counts == {"started": 1, "closed": 1}
+
+
+def test_full_header_repl_skips_non_complete_input_without_starting_lean(tmp_path):
+    """Catch extraction failures being sent to a newly started Lean process."""
+    counts = {"started": 0}
+
+    class SessionMustNotStart:
+        def __init__(self, config):
+            counts["started"] += 1
+            raise AssertionError("Lean session must not start for full_code=None")
+
+    config = ReplConfig(
+        workspace=tmp_path,
+        repl_command=("repl",),
+        imports="",
+    )
+
+    results = verify_full_header_records(
+        [{"problem_id": "p_g0", "full_code": "None"}],
+        config,
+        workers=1,
+        session_factory=SessionMustNotStart,
+    )
+
+    assert counts == {"started": 0}
+    assert results[0]["code"] == "None"
+    assert results[0]["verify_time"] == 0.0
+    assert results[0]["compilation_result"]["complete"] is False
+    assert results[0]["compilation_result"]["system_errors"] is None
+
+
+def test_full_header_repl_restart_stays_lazy_before_non_complete_input(tmp_path):
+    """A failed prior proof must not start Lean for a following extraction failure."""
+    counts = {"started": 0, "closed": 0}
+
+    class FailingSession:
+        def __init__(self, config):
+            counts["started"] += 1
+
+        def verify(self, code):
+            return system_failure_result("TIMEOUT", "test failure")
+
+        def close(self):
+            counts["closed"] += 1
+
+    config = ReplConfig(
+        workspace=tmp_path,
+        repl_command=("repl",),
+        imports="",
+    )
+
+    results = verify_full_header_records(
+        [
+            {"problem_id": "p_g0", "full_code": "theorem p : True := by trivial"},
+            {"problem_id": "p_g1", "full_code": "None"},
+        ],
+        config,
+        workers=1,
+        session_factory=FailingSession,
+    )
+
+    assert counts == {"started": 1, "closed": 1}
+    assert results[1]["compilation_result"]["system_errors"] is None

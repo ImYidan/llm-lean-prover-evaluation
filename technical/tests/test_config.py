@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from technical.src.config import cumulative_generation_offsets, load_config
+from technical.src.config import (
+    cumulative_generation_offsets,
+    load_config,
+    validate_model_run_config,
+)
 
 
 ROOT = Path(__file__).parents[2]
@@ -269,3 +273,59 @@ assembly:
 
     with pytest.raises(ValueError, match=message):
         load_config(path)
+
+
+def test_run_profile_allows_goedel_token_limit_equality(tmp_path: Path):
+    """Keep the historical Goedel max_tokens=max_model_len contract valid."""
+    path = tmp_path / "run.yaml"
+    path.write_text(
+        """\
+generation:
+  sample_schedule: [32]
+  max_model_len: 32768
+  max_tokens: 32768
+lean:
+  profile: mathlib-v49
+verification:
+  mode: full_header_repl
+  timeout: 300
+assembly:
+  mode: standard
+""",
+        encoding="utf-8",
+    )
+
+    run = load_config(path)
+    goedel = load_config(ROOT / "technical/configs/models/goedel-prover-v2-32b.yaml")
+
+    validate_model_run_config(goedel, run)
+
+
+def test_deepseek_model_run_pair_rejects_token_limit_equality(tmp_path: Path):
+    """Keep strict generation headroom specific to the DeepSeek adapter."""
+    path = tmp_path / "run.yaml"
+    path.write_text(
+        """\
+generation:
+  sample_schedule: [32]
+  max_model_len: 32768
+  max_tokens: 32768
+lean:
+  profile: mathlib-v49
+verification:
+  mode: full_header_repl
+  timeout: 300
+assembly:
+  mode: standard
+""",
+        encoding="utf-8",
+    )
+    run = load_config(path)
+    deepseek = load_config(
+        ROOT / "technical/configs/models/deepseek-prover-v2-7b.yaml"
+    )
+
+    with pytest.raises(
+        ValueError, match="generation.max_tokens must be less than generation.max_model_len"
+    ):
+        validate_model_run_config(deepseek, run)

@@ -27,9 +27,12 @@ slurm-*.out
 **/progress.json
 **/progress_pass*.json
 **/proofnet_duplicate_problem_ids.json
+**/run_manifest.json
 **/summary.csv
 **/summary.json
 **/to_inference_codes.json
+**/.run_manifest.json.lock
+**/.finalize*.lock
 
 # Model weights, tokenizer snapshots, and download caches.
 **/.cache/

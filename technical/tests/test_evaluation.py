@@ -73,3 +73,46 @@ def test_summary_rejects_empty_denominator():
         assert str(error) == "cannot summarize an empty record set"
     else:
         raise AssertionError("empty denominator was accepted")
+
+
+def test_summary_reports_generation_outcomes_separately_from_lean_results():
+    """Catch length/extraction outcomes being collapsed into Lean rejection."""
+    records = [
+        {
+            "name": "a_g0",
+            "code": "None",
+            "compilation_result": {"complete": False},
+        },
+        {
+            "name": "a_g1",
+            "code": "theorem a : True := by trivial",
+            "compilation_result": {"complete": True},
+        },
+    ]
+    maps = {key: value for key, value in _id_maps().items() if key.startswith("a_")}
+    generation_records = [
+        {
+            "problem_id": "a_g0",
+            "finish_reason": "length",
+            "extraction_status": "blocked proof token",
+        },
+        {
+            "problem_id": "a_g1",
+            "finish_reason": "stop",
+            "extraction_status": "success",
+        },
+    ]
+
+    result = summarize(
+        records,
+        maps,
+        field="complete",
+        generation_records=generation_records,
+    )
+
+    assert result["generation_outcomes"] == {
+        "total": 2,
+        "finish_reason": {"length": 1, "stop": 1},
+        "extraction_status": {"blocked proof token": 1, "success": 1},
+    }
+    assert result["levels"]["origin_problem_id"]["solved_num"] == 1

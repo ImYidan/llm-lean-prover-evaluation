@@ -6,6 +6,7 @@ import pytest
 
 from technical.src.generation.checkpoints import (
     CheckpointError,
+    CheckpointWriter,
     append_checkpoint,
     index_checkpoint,
     load_checkpoint,
@@ -100,3 +101,29 @@ def test_index_rejects_duplicate_and_conflicting_problem_ids():
         index_checkpoint(
             [record, {"problem_id": "p_g0", "model_output": "by rfl"}]
         )
+
+
+def test_stateful_writer_validates_once_and_appends_multiple_records(tmp_path, monkeypatch):
+    """Catch generation writers that reparse the full checkpoint per candidate."""
+    path = tmp_path / "inference.jsonl"
+    path.write_text('{"problem_id":"p_g0"}\n', encoding="utf-8")
+    reads = 0
+    original_read_bytes = type(path).read_bytes
+
+    def counting_read_bytes(self):
+        nonlocal reads
+        if self == path:
+            reads += 1
+        return original_read_bytes(self)
+
+    monkeypatch.setattr(type(path), "read_bytes", counting_read_bytes)
+    writer = CheckpointWriter(path)
+    writer.append({"problem_id": "p_g1"})
+    writer.append({"problem_id": "p_g2"})
+
+    assert reads == 2
+    assert load_checkpoint(path) == [
+        {"problem_id": "p_g0"},
+        {"problem_id": "p_g1"},
+        {"problem_id": "p_g2"},
+    ]
