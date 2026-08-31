@@ -7,3 +7,5 @@ lean:
 verification:
   mode: full_header_repl
   timeout: 300
+assembly:
+  mode: proofnet

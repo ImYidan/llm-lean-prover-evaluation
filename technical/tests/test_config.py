@@ -79,13 +79,59 @@ def test_load_config_returns_pinned_deepseek_model_settings():
 
 
 @pytest.mark.parametrize(
-    ("name", "samples", "model_len", "new_tokens", "lean_profile", "timeout"),
+    ("model_dtype", "gpu_memory_utilization", "message"),
     [
-        ("minif2f", [32], 32768, 8192, "mathlib-v49", 300),
-        ("proofnet", [32], 40960, 32768, "mathlib-v49", 300),
-        ("putnam", [1, 7, 8, 16], 40960, 32768, "mathlib-v49", 300),
-        ("fate-m", [32], 32768, 8192, "fate-v428", 4000),
-        ("fate-h", [32], 32768, 8192, "fate-v428", 4000),
+        ('""', 0.90, "model.dtype must be a non-empty string"),
+        ("bfloat16", 0, "generation.gpu_memory_utilization must satisfy 0 < value <= 1"),
+        ("bfloat16", 1.5, "generation.gpu_memory_utilization must satisfy 0 < value <= 1"),
+    ],
+    ids=("blank-dtype", "zero-gpu-memory", "high-gpu-memory"),
+)
+def test_load_config_rejects_invalid_deepseek_runtime_settings(
+    tmp_path: Path,
+    model_dtype: str,
+    gpu_memory_utilization: float,
+    message: str,
+):
+    """Catch unusable DeepSeek runtime profile values before script execution."""
+    path = tmp_path / "deepseek.yaml"
+    path.write_text(
+        f"""\
+model:
+  id: deepseek-ai/DeepSeek-Prover-V2-7B
+  revision: a8d9e14432b2e8dd9df2a4d4e70f1ba9bc8d9b7b
+  dtype: {model_dtype}
+  tensor_parallel_size: 1
+  trust_remote_code: false
+generation:
+  seed: 30
+  temperature: 1.0
+  top_p: 0.95
+  gpu_memory_utilization: {gpu_memory_utilization}
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=message):
+        load_config(path)
+
+
+@pytest.mark.parametrize(
+    (
+        "name",
+        "samples",
+        "model_len",
+        "new_tokens",
+        "lean_profile",
+        "timeout",
+        "assembly_mode",
+    ),
+    [
+        ("minif2f", [32], 32768, 8192, "mathlib-v49", 300, "standard"),
+        ("proofnet", [32], 40960, 32768, "mathlib-v49", 300, "proofnet"),
+        ("putnam", [1, 7, 8, 16], 40960, 32768, "mathlib-v49", 300, "standard"),
+        ("fate-m", [32], 32768, 8192, "fate-v428", 4000, "standard"),
+        ("fate-h", [32], 32768, 8192, "fate-v428", 4000, "standard"),
     ],
 )
 def test_deepseek_run_profiles(
@@ -95,6 +141,7 @@ def test_deepseek_run_profiles(
     new_tokens: int,
     lean_profile: str,
     timeout: int,
+    assembly_mode: str,
 ):
     """Catch benchmark profiles with mismatched generation or Lean limits."""
     config = load_config(ROOT / f"technical/configs/runs/deepseek/{name}.yaml")
@@ -104,6 +151,7 @@ def test_deepseek_run_profiles(
     assert config["generation"]["max_tokens"] == new_tokens
     assert config["lean"]["profile"] == lean_profile
     assert config["verification"] == {"mode": "full_header_repl", "timeout": timeout}
+    assert config["assembly"] == {"mode": assembly_mode}
 
 
 def test_putnam_offsets_derive_from_its_staged_sample_schedule():
@@ -133,6 +181,62 @@ verification:
         load_config(path)
 
 
+def test_load_config_rejects_run_profile_without_assembly_mode(tmp_path: Path):
+    """Catch run profiles that leave ProofNet assembly to filename inference."""
+    path = tmp_path / "run.yaml"
+    path.write_text(
+        """\
+generation:
+  sample_schedule: [32]
+  max_model_len: 32768
+  max_tokens: 8192
+lean:
+  profile: mathlib-v49
+verification:
+  mode: full_header_repl
+  timeout: 300
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="missing required section: assembly"):
+        load_config(path)
+
+
+@pytest.mark.parametrize(
+    ("mode", "message"),
+    [
+        ("42", "assembly.mode must be a string"),
+        ("filename", "unsupported assembly.mode: filename"),
+    ],
+    ids=("wrong-type", "unsupported-mode"),
+)
+def test_load_config_rejects_invalid_run_profile_assembly_mode(
+    tmp_path: Path, mode: str, message: str
+):
+    """Catch unsupported run-profile assembly policies before scripts consume them."""
+    path = tmp_path / "run.yaml"
+    path.write_text(
+        f"""\
+generation:
+  sample_schedule: [32]
+  max_model_len: 32768
+  max_tokens: 8192
+lean:
+  profile: mathlib-v49
+verification:
+  mode: full_header_repl
+  timeout: 300
+assembly:
+  mode: {mode}
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=message):
+        load_config(path)
+
+
 @pytest.mark.parametrize(
     ("mode", "message"),
     [
@@ -157,6 +261,8 @@ lean:
 verification:
   mode: {mode}
   timeout: 300
+assembly:
+  mode: standard
 """,
         encoding="utf-8",
     )

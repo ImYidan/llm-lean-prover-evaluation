@@ -7,3 +7,5 @@ lean:
 verification:
   mode: full_header_repl
   timeout: 4000
+assembly:
+  mode: standard

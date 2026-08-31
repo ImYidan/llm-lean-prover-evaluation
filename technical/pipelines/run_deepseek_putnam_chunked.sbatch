@@ -42,26 +42,34 @@ if run["verification"]["mode"] != "full_header_repl":
     raise ValueError("run verification.mode must be full_header_repl")
 if run["generation"]["sample_schedule"] != [1, 7, 8, 16]:
     raise ValueError("DeepSeek Putnam run profile must use [1, 7, 8, 16]")
+if run["assembly"]["mode"] != "standard":
+    raise ValueError("DeepSeek Putnam run profile must use standard assembly")
 print(model["generation"]["seed"])
 print(model["generation"]["temperature"])
 print(model["generation"]["top_p"])
+print(model["model"]["dtype"])
+print(model["generation"]["gpu_memory_utilization"])
 print(run["generation"]["max_model_len"])
 print(run["generation"]["max_tokens"])
 print(model["model"]["tensor_parallel_size"])
 print(str(model["model"]["trust_remote_code"]).lower())
 print(model["model"]["revision"] or "__NONE__")
 print(run["verification"]["timeout"])
+print(run["assembly"]["mode"])
 ' "${MODEL_CONFIG}" "${RUN_CONFIG}")
 
 SEED=${SETTINGS[0]}
 TEMPERATURE=${SETTINGS[1]}
 TOP_P=${SETTINGS[2]}
-MAX_MODEL_LEN=${SETTINGS[3]}
-MAX_TOKENS=${SETTINGS[4]}
-TENSOR_PARALLEL_SIZE=${SETTINGS[5]}
-TRUST_REMOTE_CODE=${SETTINGS[6]}
-REVISION=${SETTINGS[7]}
-PROOF_TIMEOUT=${SETTINGS[8]}
+DTYPE=${SETTINGS[3]}
+GPU_MEMORY_UTILIZATION=${SETTINGS[4]}
+MAX_MODEL_LEN=${SETTINGS[5]}
+MAX_TOKENS=${SETTINGS[6]}
+TENSOR_PARALLEL_SIZE=${SETTINGS[7]}
+TRUST_REMOTE_CODE=${SETTINGS[8]}
+REVISION=${SETTINGS[9]}
+PROOF_TIMEOUT=${SETTINGS[10]}
+ASSEMBLY_MODE=${SETTINGS[11]}
 
 case "${TARGET_PASS}:${GENERATION_OFFSET}:${SAMPLES}" in
   1:0:1) STAGE_SPECS=("0:1") ;;
@@ -90,11 +98,14 @@ fi
   --model-path "${MODEL_PATH}" \
   --output-dir "${STAGE_DIR}" \
   --adapter deepseek \
+  --assembly-mode "${ASSEMBLY_MODE}" \
   --samples "${SAMPLES}" \
   --generation-offset "${GENERATION_OFFSET}" \
   --seed "${SEED}" \
   --temperature "${TEMPERATURE}" \
   --top-p "${TOP_P}" \
+  --dtype "${DTYPE}" \
+  --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
   --max-model-len "${MAX_MODEL_LEN}" \
   --max-tokens "${MAX_TOKENS}" \
   --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}" \
@@ -159,4 +170,12 @@ GLOBAL_DIR=${OUTPUT_DIR}/cumulative_pass${TARGET_PASS}
   --target-pass "${TARGET_PASS}" \
   --output "${OUTPUT_DIR}/progress_pass${TARGET_PASS}.json"
 
-touch "${OUTPUT_DIR}/COMPLETE"
+GLOBAL_COMPLETE=$("${PYTHON_BIN}" -m technical.src.benchmarks.putnam_chunking is-complete \
+  --progress "${OUTPUT_DIR}/progress_pass${TARGET_PASS}.json")
+if [[ "${GLOBAL_COMPLETE}" == "true" ]]; then
+  "${PYTHON_BIN}" -m technical.src.evaluation.summarize_passk \
+    --input "${GLOBAL_DIR}/code_compilation_full_header.json" \
+    --full-records "${GLOBAL_DIR}/full_records.json" \
+    --output-dir "${GLOBAL_DIR}/summary"
+  touch "${OUTPUT_DIR}/COMPLETE"
+fi

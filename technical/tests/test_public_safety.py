@@ -83,6 +83,13 @@ def _last_effective_line(text: str) -> str:
     return lines[-1]
 
 
+def _line_number(text: str, needle: str) -> int:
+    for index, line in enumerate(text.splitlines(), start=1):
+        if needle in line:
+            return index
+    raise AssertionError(f"{needle!r} not found")
+
+
 def _required_paths(root: Path) -> tuple[Path, ...]:
     return (
         root / ".gitmodules",
@@ -251,6 +258,7 @@ def test_slurm_pipelines_are_portable_and_fail_fast():
             "technical.src.benchmarks.putnam_chunking",
             "technical.src.generation.generate",
             "technical.src.verification.verify_full_header_repl",
+            "technical.src.evaluation.summarize_passk",
         ),
     }
     for path in PIPELINES:
@@ -279,18 +287,37 @@ def test_deepseek_pipelines_use_profiles_adapter_and_shared_verifier():
         assert "--adapter" in text and "deepseek" in text
         assert "--model-path" in text and '"${MODEL_PATH}"' in text
         assert "--max-tokens" in text and '"${MAX_TOKENS}"' in text
+        assert "--dtype" in text and '"${DTYPE}"' in text
+        assert "--gpu-memory-utilization" in text
+        assert '"${GPU_MEMORY_UTILIZATION}"' in text
         assert "technical.src.verification.verify_full_header_repl" in text
         assert "verify_standard_repl" not in text
         assert "verify_full_header_file" not in text
         assert "sample_schedule" in text
         assert "max_model_len" in text
         assert "max_tokens" in text
+        assert "dtype" in text
+        assert "gpu_memory_utilization" in text
+        assert 'run["assembly"]["mode"]' in text
+        assert "Path(sys.argv[2]).stem" not in text
+        assert "--assembly-mode" in text
         assert "rm -f" in text and "COMPLETE" in text
-        assert _last_effective_line(text) == 'touch "${OUTPUT_DIR}/COMPLETE"'
 
-    assert "--assembly-mode" in standard
-    assert "proofnet" in standard
     assert "RUN_CONFIG" in standard
+    assert _last_effective_line(standard) == 'touch "${OUTPUT_DIR}/COMPLETE"'
+
+    assert 'run["assembly"]["mode"] != "standard"' in putnam
+    assert 'if [[ "${GLOBAL_COMPLETE}" == "true" ]]; then' in putnam
+    assert _line_number(putnam, "putnam_chunking progress") < _line_number(
+        putnam, "putnam_chunking is-complete"
+    )
+    assert _line_number(putnam, "putnam_chunking is-complete") < _line_number(
+        putnam, "technical.src.evaluation.summarize_passk"
+    )
+    assert _line_number(putnam, "technical.src.evaluation.summarize_passk") < _line_number(
+        putnam, 'touch "${OUTPUT_DIR}/COMPLETE"'
+    )
+    assert _last_effective_line(putnam) != 'touch "${OUTPUT_DIR}/COMPLETE"'
 
 
 def test_slurm_scripts_contain_no_private_runtime_paths_or_weights():

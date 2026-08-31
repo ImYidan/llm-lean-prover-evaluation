@@ -26,6 +26,8 @@ VERIFICATION_KEYS = ("mode", "timeout")
 RUN_GENERATION_KEYS = ("sample_schedule", "max_model_len", "max_tokens")
 LEAN_PROFILE_KEYS = ("profile",)
 RUN_VERIFICATION_MODES = ("full_header_repl",)
+ASSEMBLY_KEYS = ("mode",)
+RUN_ASSEMBLY_MODES = ("standard", "proofnet")
 
 
 def _require_mapping(config: dict[str, Any], section: str) -> dict[str, Any]:
@@ -50,6 +52,11 @@ def _validate_model_config(config: dict[str, Any]) -> None:
     if model["id"] == DEEPSEEK_MODEL_ID:
         _require_keys(model, "model", DEEPSEEK_MODEL_KEYS)
         _require_keys(generation, "generation", DEEPSEEK_GENERATION_KEYS)
+        _require_non_empty_string(model["dtype"], "model.dtype")
+        _require_unit_interval(
+            generation["gpu_memory_utilization"],
+            "generation.gpu_memory_utilization",
+        )
     else:
         _require_keys(generation, "generation", MODEL_GENERATION_KEYS)
 
@@ -64,6 +71,20 @@ def _validate_benchmark_config(config: dict[str, Any]) -> None:
 def _require_positive_int(value: Any, name: str) -> None:
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise ValueError(f"{name} must be a positive integer")
+
+
+def _require_non_empty_string(value: Any, name: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a non-empty string")
+
+
+def _require_unit_interval(value: Any, name: str) -> None:
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not 0 < float(value) <= 1
+    ):
+        raise ValueError(f"{name} must satisfy 0 < value <= 1")
 
 
 def _validate_sample_schedule(sample_schedule: Any) -> list[int]:
@@ -89,9 +110,11 @@ def _validate_run_config(config: dict[str, Any]) -> None:
     generation = _require_mapping(config, "generation")
     lean = _require_mapping(config, "lean")
     verification = _require_mapping(config, "verification")
+    assembly = _require_mapping(config, "assembly")
     _require_keys(generation, "generation", RUN_GENERATION_KEYS)
     _require_keys(lean, "lean", LEAN_PROFILE_KEYS)
     _require_keys(verification, "verification", VERIFICATION_KEYS)
+    _require_keys(assembly, "assembly", ASSEMBLY_KEYS)
 
     _validate_sample_schedule(generation["sample_schedule"])
     _require_positive_int(generation["max_model_len"], "generation.max_model_len")
@@ -105,6 +128,10 @@ def _validate_run_config(config: dict[str, Any]) -> None:
         raise ValueError("verification.mode must be a string")
     if verification["mode"] not in RUN_VERIFICATION_MODES:
         raise ValueError(f"unsupported verification.mode: {verification['mode']}")
+    if not isinstance(assembly["mode"], str):
+        raise ValueError("assembly.mode must be a string")
+    if assembly["mode"] not in RUN_ASSEMBLY_MODES:
+        raise ValueError(f"unsupported assembly.mode: {assembly['mode']}")
 
 
 def load_config(path: Path) -> dict:

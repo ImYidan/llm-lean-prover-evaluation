@@ -32,11 +32,13 @@ if run["verification"]["mode"] != "full_header_repl":
 schedule = run["generation"]["sample_schedule"]
 if len(schedule) != 1:
     raise ValueError("standard DeepSeek pipeline requires one sample stage")
-assembly_mode = "proofnet" if Path(sys.argv[2]).stem == "proofnet" else "standard"
+assembly_mode = run["assembly"]["mode"]
 print(schedule[0])
 print(model["generation"]["seed"])
 print(model["generation"]["temperature"])
 print(model["generation"]["top_p"])
+print(model["model"]["dtype"])
+print(model["generation"]["gpu_memory_utilization"])
 print(run["generation"]["max_model_len"])
 print(run["generation"]["max_tokens"])
 print(model["model"]["tensor_parallel_size"])
@@ -50,13 +52,15 @@ SAMPLES=${SETTINGS[0]}
 SEED=${SETTINGS[1]}
 TEMPERATURE=${SETTINGS[2]}
 TOP_P=${SETTINGS[3]}
-MAX_MODEL_LEN=${SETTINGS[4]}
-MAX_TOKENS=${SETTINGS[5]}
-TENSOR_PARALLEL_SIZE=${SETTINGS[6]}
-TRUST_REMOTE_CODE=${SETTINGS[7]}
-REVISION=${SETTINGS[8]}
-PROOF_TIMEOUT=${SETTINGS[9]}
-ASSEMBLY_MODE=${SETTINGS[10]}
+DTYPE=${SETTINGS[4]}
+GPU_MEMORY_UTILIZATION=${SETTINGS[5]}
+MAX_MODEL_LEN=${SETTINGS[6]}
+MAX_TOKENS=${SETTINGS[7]}
+TENSOR_PARALLEL_SIZE=${SETTINGS[8]}
+TRUST_REMOTE_CODE=${SETTINGS[9]}
+REVISION=${SETTINGS[10]}
+PROOF_TIMEOUT=${SETTINGS[11]}
+ASSEMBLY_MODE=${SETTINGS[12]}
 MODEL_ARGS=()
 if [[ "${TRUST_REMOTE_CODE}" == "true" ]]; then
   MODEL_ARGS+=(--trust-remote-code)
@@ -75,6 +79,8 @@ fi
   --seed "${SEED}" \
   --temperature "${TEMPERATURE}" \
   --top-p "${TOP_P}" \
+  --dtype "${DTYPE}" \
+  --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
   --max-model-len "${MAX_MODEL_LEN}" \
   --max-tokens "${MAX_TOKENS}" \
   --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}" \

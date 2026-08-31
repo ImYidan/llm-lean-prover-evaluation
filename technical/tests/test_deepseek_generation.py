@@ -460,11 +460,15 @@ def test_vllm_sampling_params_receives_samples_per_prompt(monkeypatch):
         top_p=0.9,
         max_tokens=64,
         samples_per_prompt=3,
+        dtype="bfloat16",
+        gpu_memory_utilization=0.75,
     )
 
     assert tokenizer == "tokenizer"
     assert isinstance(backend, _VllmBackend)
     assert captured["sampling"]["n"] == 3
+    assert captured["llm"]["dtype"] == "bfloat16"
+    assert captured["llm"]["gpu_memory_utilization"] == 0.75
 
 
 def test_vllm_backend_rejects_max_tokens_at_model_limit_before_import(monkeypatch):
@@ -503,6 +507,48 @@ def test_vllm_backend_rejects_non_positive_samples_before_import(monkeypatch):
         )
 
 
+def test_vllm_backend_rejects_invalid_gpu_memory_utilization_before_import(
+    monkeypatch,
+):
+    """Catch invalid model memory limits before importing optional heavy backends."""
+    monkeypatch.delitem(sys.modules, "transformers", raising=False)
+    monkeypatch.delitem(sys.modules, "vllm", raising=False)
+
+    with pytest.raises(
+        ValueError, match="gpu_memory_utilization must satisfy 0 < value <= 1"
+    ):
+        create_vllm_backend(
+            model_path="model",
+            seed=1,
+            tensor_parallel_size=1,
+            max_model_len=128,
+            temperature=1.0,
+            top_p=0.95,
+            max_tokens=64,
+            samples_per_prompt=1,
+            gpu_memory_utilization=0,
+        )
+
+
+def test_vllm_backend_rejects_blank_dtype_before_import(monkeypatch):
+    """Catch missing dtype values before importing optional heavy backends."""
+    monkeypatch.delitem(sys.modules, "transformers", raising=False)
+    monkeypatch.delitem(sys.modules, "vllm", raising=False)
+
+    with pytest.raises(ValueError, match="dtype must be a non-empty string"):
+        create_vllm_backend(
+            model_path="model",
+            seed=1,
+            tensor_parallel_size=1,
+            max_model_len=128,
+            temperature=1.0,
+            top_p=0.95,
+            max_tokens=64,
+            samples_per_prompt=1,
+            dtype="",
+        )
+
+
 def test_cli_defaults_to_goedel_adapter():
     """Keep the historical generation adapter as the CLI default."""
     args = build_parser().parse_args(
@@ -529,6 +575,29 @@ def test_cli_accepts_deepseek_adapter():
     )
 
     assert args.adapter == "deepseek"
+
+
+def test_cli_accepts_backend_dtype_and_gpu_memory_utilization():
+    """Expose reviewed DeepSeek model profile runtime settings to vLLM."""
+    args = build_parser().parse_args(
+        [
+            "--input",
+            "input.jsonl",
+            "--model-path",
+            "model",
+            "--output-dir",
+            "out",
+            "--adapter",
+            "deepseek",
+            "--dtype",
+            "bfloat16",
+            "--gpu-memory-utilization",
+            "0.90",
+        ]
+    )
+
+    assert args.dtype == "bfloat16"
+    assert args.gpu_memory_utilization == 0.90
 
 
 def test_cli_accepts_deepseek_proofnet_assembly_mode():
@@ -612,10 +681,16 @@ def test_deepseek_cli_proofnet_mode_prepares_rows_and_uses_target_assembler(
             "128",
             "--max-tokens",
             "64",
+            "--dtype",
+            "bfloat16",
+            "--gpu-memory-utilization",
+            "0.80",
         ]
     )
 
     assert result == 0
+    assert captured["backend_kwargs"]["dtype"] == "bfloat16"
+    assert captured["backend_kwargs"]["gpu_memory_utilization"] == 0.80
     assert captured["assembled"] == (
         "lemma helper : True := by trivial\n\n"
         "theorem target : True := by\n  trivial"

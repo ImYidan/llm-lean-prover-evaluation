@@ -208,6 +208,16 @@ def summarize_chunk_progress(
     }
 
 
+def is_global_progress_complete(progress: dict) -> bool:
+    """Return whether a Putnam progress summary has no missing chunks."""
+    if "missing_chunks" not in progress:
+        raise ValueError("progress summary is missing missing_chunks")
+    missing_chunks = progress["missing_chunks"]
+    if not isinstance(missing_chunks, list):
+        raise ValueError("progress summary missing_chunks must be a list")
+    return not missing_chunks
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -236,6 +246,9 @@ def build_parser() -> argparse.ArgumentParser:
     cumulative.add_argument("--verification", type=Path, action="append", required=True)
     cumulative.add_argument("--target-pass", type=int, required=True)
     cumulative.add_argument("--output-dir", type=Path, required=True)
+
+    is_complete = subparsers.add_parser("is-complete")
+    is_complete.add_argument("--progress", type=Path, required=True)
     return parser
 
 
@@ -263,6 +276,11 @@ def main(argv: list[str] | None = None) -> int:
         _atomic_write_text(
             args.output, json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
         )
+    elif args.command == "is-complete":
+        progress = json.loads(args.progress.read_text(encoding="utf-8"))
+        if not isinstance(progress, dict):
+            raise ValueError("progress summary must be a JSON object")
+        print("true" if is_global_progress_complete(progress) else "false")
     else:
         merge_putnam_stages(
             args.full,

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from technical.src.benchmarks.putnam_chunking import (
     chunk_bounds,
+    is_global_progress_complete,
     merge_putnam_stages,
     merge_json_lists,
     split_jsonl,
@@ -115,6 +116,19 @@ def test_progress_summary_reports_terminal_solved_and_missing_chunks(tmp_path):
     }
 
 
+def test_global_progress_complete_requires_no_missing_chunks():
+    """Catch a partial Putnam invocation being promoted to global completion."""
+    assert is_global_progress_complete({"missing_chunks": []}) is True
+    assert is_global_progress_complete({"missing_chunks": [1]}) is False
+
+    try:
+        is_global_progress_complete({"complete_chunks": [0]})
+    except ValueError as error:
+        assert str(error) == "progress summary is missing missing_chunks"
+    else:
+        raise AssertionError("progress without missing_chunks was accepted")
+
+
 def test_cumulative_stage_merge_requires_exact_generation_prefix(tmp_path):
     stage0 = tmp_path / "stage0"
     stage1 = tmp_path / "stage1"
@@ -181,4 +195,15 @@ def test_deepseek_putnam_pipeline_declares_exact_cumulative_stages():
     assert "putnam_chunking cumulative" in text
     assert "putnam_chunking merge" in text
     assert "putnam_chunking progress" in text
+    assert "putnam_chunking is-complete" in text
+    assert "technical.src.evaluation.summarize_passk" in text
     assert '[[ ! -f "${required}/COMPLETE" ]]' in text
+    assert 'touch "${CUMULATIVE_DIR}/COMPLETE"' in text
+    assert 'touch "${OUTPUT_DIR}/COMPLETE"' in text
+    assert text.rfind("putnam_chunking progress") < text.rfind("putnam_chunking is-complete")
+    assert text.rfind("putnam_chunking is-complete") < text.rfind(
+        "technical.src.evaluation.summarize_passk"
+    )
+    assert text.rfind("technical.src.evaluation.summarize_passk") < text.rfind(
+        'touch "${OUTPUT_DIR}/COMPLETE"'
+    )

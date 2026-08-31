@@ -186,12 +186,16 @@ def create_vllm_backend(
     samples_per_prompt: int = 1,
     trust_remote_code: bool = False,
     revision: str | None = None,
+    dtype: str = "auto",
+    gpu_memory_utilization: float = 0.90,
 ):
     """Create real tokenizer/backend objects while keeping imports lazy."""
     validate_generation_options(
         samples=samples_per_prompt,
         max_model_len=max_model_len,
         max_tokens=max_tokens,
+        dtype=dtype,
+        gpu_memory_utilization=gpu_memory_utilization,
     )
     from transformers import AutoTokenizer
     from vllm import LLM, SamplingParams
@@ -206,6 +210,8 @@ def create_vllm_backend(
         revision=revision,
         max_model_len=max_model_len,
         tensor_parallel_size=tensor_parallel_size,
+        dtype=dtype,
+        gpu_memory_utilization=gpu_memory_utilization,
     )
     params = SamplingParams(
         temperature=temperature,
@@ -217,13 +223,26 @@ def create_vllm_backend(
 
 
 def validate_generation_options(
-    *, samples: int, max_model_len: int, max_tokens: int
+    *,
+    samples: int,
+    max_model_len: int,
+    max_tokens: int,
+    dtype: str = "auto",
+    gpu_memory_utilization: float = 0.90,
 ) -> None:
     """Reject invalid generation limits before loading optional model backends."""
     if samples < 1:
         raise ValueError("samples must be positive")
     if max_tokens >= max_model_len:
         raise ValueError("max_tokens must be less than max_model_len")
+    if not isinstance(dtype, str) or not dtype.strip():
+        raise ValueError("dtype must be a non-empty string")
+    if (
+        not isinstance(gpu_memory_utilization, (int, float))
+        or isinstance(gpu_memory_utilization, bool)
+        or not 0 < float(gpu_memory_utilization) <= 1
+    ):
+        raise ValueError("gpu_memory_utilization must satisfy 0 < value <= 1")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -247,6 +266,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-model-len", type=int, default=32768)
     parser.add_argument("--max-tokens", type=int, default=32767)
     parser.add_argument("--tensor-parallel-size", type=int, default=4)
+    parser.add_argument("--dtype", default="auto")
+    parser.add_argument("--gpu-memory-utilization", type=float, default=0.90)
     parser.add_argument("--chunk-size", type=int, default=128)
     parser.add_argument("--trust-remote-code", action="store_true")
     parser.add_argument("--revision")
@@ -262,6 +283,8 @@ def main(argv: list[str] | None = None) -> int:
             samples=args.samples,
             max_model_len=args.max_model_len,
             max_tokens=args.max_tokens,
+            dtype=args.dtype,
+            gpu_memory_utilization=args.gpu_memory_utilization,
         )
     except ValueError as error:
         raise SystemExit(str(error)) from error
@@ -277,6 +300,8 @@ def main(argv: list[str] | None = None) -> int:
         samples_per_prompt=args.samples if args.adapter == "deepseek" else 1,
         trust_remote_code=args.trust_remote_code,
         revision=args.revision,
+        dtype=args.dtype,
+        gpu_memory_utilization=args.gpu_memory_utilization,
     )
     if args.adapter == "deepseek":
         assembler = None
