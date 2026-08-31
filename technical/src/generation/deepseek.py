@@ -86,7 +86,7 @@ def _record_from_candidate(
     prompt: str,
     messages: list[dict],
     candidate: Candidate,
-    assembler: Callable[[str, str], str],
+    assembler: Callable[[str, str], str | None],
 ) -> dict:
     model_output = candidate.text
     record = dict(attempt)
@@ -97,13 +97,19 @@ def _record_from_candidate(
     record["finish_reason"] = candidate.finish_reason
     record["stop_reason"] = candidate.stop_reason
     try:
-        record["full_code"] = assembler(attempt["lean4_code"], model_output)
-        record["extraction_status"] = "success"
+        assembled = assembler(attempt["lean4_code"], model_output)
     except ProofAssemblyError as error:
         record["full_code"] = "None"
         record["extraction_status"] = error.condition
         if error.tactic is not None:
             record["extraction_tactic"] = error.tactic
+    else:
+        if assembled is None:
+            record["full_code"] = "None"
+            record["extraction_status"] = "missing fenced Lean code block"
+        else:
+            record["full_code"] = assembled
+            record["extraction_status"] = "success"
     return record
 
 
@@ -115,7 +121,7 @@ def generate_deepseek_records(
     output_dir: Path,
     samples: int,
     generation_offset: int = 0,
-    assembler: Callable[[str, str], str] = assemble_deepseek_submission,
+    assembler: Callable[[str, str], str | None] = assemble_deepseek_submission,
 ) -> tuple[list[dict], list[dict]]:
     """Generate grouped DeepSeek candidates and resume from a valid raw prefix."""
     expected = build_attempts(rows, samples=samples, offset=generation_offset)

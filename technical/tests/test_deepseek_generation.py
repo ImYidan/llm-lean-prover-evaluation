@@ -6,6 +6,7 @@ import types
 
 import pytest
 
+from technical.src.benchmarks.proofnet import assemble_proofnet_model_output
 from technical.src.generation.candidates import Candidate
 from technical.src.generation.checkpoints import append_checkpoint, load_checkpoint
 from technical.src.generation.deepseek import generate_deepseek_records
@@ -47,6 +48,14 @@ class WrongGroupCountBackend:
 class WrongCandidateCountBackend:
     def generate(self, prompts):
         return [[Candidate("```lean4\ntheorem p : True := by\n  trivial\n```")]]
+
+
+class StaticGroupedBackend:
+    def __init__(self, text):
+        self.text = text
+
+    def generate(self, prompts):
+        return [[Candidate(self.text, finish_reason="stop", stop_reason=None)]]
 
 
 class BackendMustNotBeCalled:
@@ -330,6 +339,66 @@ def test_grouped_generation_uses_supplied_assembler(tmp_path):
         )
     ]
     assert full_records[0]["full_code"].endswith("-- target-aware")
+
+
+def test_grouped_generation_marks_proofnet_unfenced_output_as_failed(tmp_path):
+    """Catch ProofNet assembler returning None being recorded as success."""
+    rows = [
+        {
+            "problem_id": "proofnet",
+            "lean4_code": (
+                "lemma helper : True := by trivial\n\n"
+                "theorem target : True := by sorry"
+            ),
+        }
+    ]
+
+    full_records, _ = generate_deepseek_records(
+        rows,
+        tokenizer=FakeTokenizer(),
+        backend=StaticGroupedBackend("proof plan only"),
+        output_dir=tmp_path,
+        samples=1,
+        assembler=assemble_proofnet_model_output,
+    )
+
+    assert full_records[0]["full_code"] == "None"
+    assert full_records[0]["extraction_status"] == "missing fenced Lean code block"
+
+
+def test_grouped_generation_uses_real_proofnet_assembler_success_path(tmp_path):
+    """Catch the assembler seam failing to support target-aware ProofNet output."""
+    rows = [
+        {
+            "problem_id": "proofnet",
+            "lean4_code": (
+                "lemma helper : True := by trivial\n\n"
+                "theorem target : True := by sorry"
+            ),
+        }
+    ]
+    output = (
+        "plan\n```lean4\n"
+        "lemma generated_helper : True := by trivial\n\n"
+        "theorem target : True := by\n"
+        "  trivial\n"
+        "```"
+    )
+
+    full_records, _ = generate_deepseek_records(
+        rows,
+        tokenizer=FakeTokenizer(),
+        backend=StaticGroupedBackend(output),
+        output_dir=tmp_path,
+        samples=1,
+        assembler=assemble_proofnet_model_output,
+    )
+
+    assert full_records[0]["extraction_status"] == "success"
+    assert full_records[0]["full_code"] == (
+        "lemma helper : True := by trivial\n\n"
+        "theorem target : True := by\n  trivial"
+    )
 
 
 def test_vllm_backend_preserves_candidate_finish_and_stop_reasons():
