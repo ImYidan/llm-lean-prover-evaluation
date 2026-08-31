@@ -12,7 +12,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from technical.src.config import load_config, validate_model_run_config
+from technical.src.config import (
+    DEEPSEEK_MODEL_ID,
+    load_config,
+    validate_model_run_config,
+)
 from technical.src.generation.adapters.deepseek import deepseek_prompt_contract
 
 
@@ -92,21 +96,101 @@ def build_run_manifest(
     model_config = load_config(Path(model_config_path))
     run_config = load_config(Path(run_config_path))
     validate_model_run_config(model_config, run_config)
+    if model_config["model"]["id"] != DEEPSEEK_MODEL_ID:
+        raise ValueError("run manifests require the DeepSeek-Prover-V2-7B profile")
+    schedule = run_config["generation"]["sample_schedule"]
+    assembly_mode = run_config["assembly"]["mode"]
+    lean_profile = run_config["lean"]["profile"]
+    benchmark = run_config["benchmark"]
+    expected_profile = {
+        "minif2f": "deepseek-v49-rc2",
+        "proofnet": "deepseek-v49-rc2",
+        "putnam": "deepseek-v49-rc2",
+        "fate-m": "fate-v428",
+        "fate-h": "fate-v428",
+    }[benchmark]
+    if lean_profile != expected_profile:
+        label = {
+            "minif2f": "miniF2F",
+            "proofnet": "ProofNet",
+            "putnam": "Putnam",
+            "fate-m": "FATE-M",
+            "fate-h": "FATE-H",
+        }[benchmark]
+        raise ValueError(f"{label} requires {expected_profile}")
+    expected_assembly = "proofnet" if benchmark == "proofnet" else "standard"
+    if assembly_mode != expected_assembly:
+        label = "ProofNet" if benchmark == "proofnet" else benchmark
+        raise ValueError(f"{label} requires {expected_assembly} assembly")
+    if pipeline == "deepseek-standard":
+        if benchmark == "putnam":
+            raise ValueError("Putnam requires the deepseek-putnam pipeline")
+        if chunk_count != 1:
+            raise ValueError("standard DeepSeek pipeline requires one chunk")
+        if len(schedule) != 1:
+            raise ValueError("standard DeepSeek pipeline requires one sample stage")
+    else:
+        if benchmark != "putnam":
+            raise ValueError("deepseek-putnam pipeline requires benchmark putnam")
+        if schedule != [1, 7, 8, 16]:
+            raise ValueError("Putnam pipeline requires sample schedule [1, 7, 8, 16]")
+        if assembly_mode != "standard":
+            raise ValueError("Putnam pipeline requires standard assembly")
+        if lean_profile != "deepseek-v49-rc2":
+            raise ValueError("Putnam pipeline requires deepseek-v49-rc2")
+    from technical.src.generation.generate import build_attempts, load_jsonl
+
+    input_rows = load_jsonl(Path(input_path))
+    if not input_rows:
+        raise ValueError("benchmark JSONL must contain at least one object")
+    if not build_attempts(input_rows, samples=1, offset=0):
+        raise ValueError("benchmark JSONL must contain at least one Lean problem")
+    model = model_config["model"]
+    model_generation = model_config["generation"]
+    run_generation = run_config["generation"]
     payload = {
         "schema_version": 1,
         "pipeline": pipeline,
-        "model": model_config["model"],
+        "benchmark": benchmark,
+        "model": {
+            key: model[key]
+            for key in (
+                "id",
+                "revision",
+                "dtype",
+                "tensor_parallel_size",
+                "trust_remote_code",
+            )
+        },
         "sampling": {
-            **model_config["generation"],
-            **run_config["generation"],
+            key: source[key]
+            for source, keys in (
+                (
+                    model_generation,
+                    (
+                        "seed",
+                        "temperature",
+                        "top_p",
+                        "gpu_memory_utilization",
+                    ),
+                ),
+                (
+                    run_generation,
+                    ("sample_schedule", "max_model_len", "max_tokens"),
+                ),
+            )
+            for key in keys
         },
         "prompt": {
             "adapter": "deepseek",
             "contract_sha256": canonical_sha256(deepseek_prompt_contract()),
         },
-        "assembly": run_config["assembly"],
-        "lean": run_config["lean"],
-        "verification": run_config["verification"],
+        "assembly": {"mode": run_config["assembly"]["mode"]},
+        "lean": {"profile": run_config["lean"]["profile"]},
+        "verification": {
+            "mode": run_config["verification"]["mode"],
+            "timeout": run_config["verification"]["timeout"],
+        },
         "input_sha256": file_sha256(input_path),
         "chunk_count": chunk_count,
     }

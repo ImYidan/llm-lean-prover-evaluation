@@ -1,0 +1,10 @@
+{
+  "mathlib": {
+    "url": "https://github.com/xinhjBrant/mathlib4.git",
+    "revision": "2f65ba7f1a9144b20c8e7358513548e317d26de1"
+  },
+  "repl": {
+    "url": "https://github.com/xinhjBrant/repl.git",
+    "revision": "3334a97b268ecc67beb36a75787f7e831208a724"
+  }
+}

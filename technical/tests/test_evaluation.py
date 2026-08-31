@@ -1,10 +1,12 @@
 """Tests for Pass@k prefix selection and historical summary semantics."""
 
+import json
+
 from technical.src.evaluation.select_passk_prefix import (
     GenerationIdError,
     select_generation_prefix,
 )
-from technical.src.evaluation.summarize_passk import summarize
+from technical.src.evaluation.summarize_passk import summarize, write_summary_outputs
 
 
 def test_prefix_selection_keeps_only_generations_below_k():
@@ -116,3 +118,44 @@ def test_summary_reports_generation_outcomes_separately_from_lean_results():
         "extraction_status": {"blocked proof token": 1, "success": 1},
     }
     assert result["levels"]["origin_problem_id"]["solved_num"] == 1
+
+
+def test_summary_writer_preserves_legacy_meta_and_separates_generation_outcomes(
+    tmp_path,
+):
+    """Catch DeepSeek metadata changing the historical Goedel meta array schema."""
+    result = {
+        "field": "complete",
+        "levels": {
+            "origin_problem_id": {
+                "problem_num": 1,
+                "solved_num": 1,
+                "solved_ratio": "100.00",
+                "details": {"a": {"correct": 1, "count": 2}},
+            }
+        },
+        "records": [],
+        "generation_outcomes": {
+            "total": 2,
+            "finish_reason": {"length": 1, "stop": 1},
+            "extraction_status": {"blocked proof token": 1, "success": 1},
+        },
+    }
+
+    write_summary_outputs(tmp_path, result)
+
+    assert json.loads((tmp_path / "meta_summarize.json").read_text()) == [
+        {
+            "level": "origin_problem_id",
+            "value": {
+                "problem_num": 1,
+                "solved_num": 1,
+                "solved_ratio": "100.00",
+            },
+        }
+    ]
+    assert json.loads((tmp_path / "generation_outcomes.json").read_text()) == {
+        "total": 2,
+        "finish_reason": {"length": 1, "stop": 1},
+        "extraction_status": {"blocked proof token": 1, "success": 1},
+    }

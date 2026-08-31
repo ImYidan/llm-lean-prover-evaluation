@@ -20,6 +20,7 @@ slurm-*.out
 **/code_compilation_full_header.json
 **/code_compilation_repl.json
 **/full_records.json
+**/generation_outcomes.json
 **/generation_id_summarize.csv
 **/inference.jsonl
 **/meta_summarize.json

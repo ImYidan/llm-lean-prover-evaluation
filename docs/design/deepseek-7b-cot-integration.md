@@ -98,9 +98,9 @@ the historical sampling, verification, timeout, and Lean settings.
 
 | Profile | Samples | Model length | New tokens | Verifier | Lean profile | Timeout |
 |---|---:|---:|---:|---|---|---:|
-| miniF2F | 32 | 32768 | 8192 | full-header REPL | v4.9 | 300 s |
-| ProofNet | 32 | 40960 | 32768 | full-header REPL | v4.9 | 300 s |
-| PutnamBench | 1+7+8+16 | 40960 | 32768 | full-header REPL | v4.9 | 300 s |
+| miniF2F | 32 | 32768 | 8192 | full-header REPL | v4.9.0-rc2 | 300 s |
+| ProofNet | 32 | 40960 | 32768 | full-header REPL | v4.9.0-rc2 | 300 s |
+| PutnamBench | 1+7+8+16 | 40960 | 32768 | full-header REPL | v4.9.0-rc2 | 300 s |
 | FATE-M | 32 | 32768 | 8192 | full-header REPL | v4.28 | 4000 s |
 | FATE-H | 32 | 32768 | 8192 | full-header REPL | v4.28 | 4000 s |
 
@@ -114,11 +114,16 @@ PutnamBench accepts only cumulative generation prefixes `g0`, `g0..g7`,
 
 ## Lean profiles
 
-miniF2F, ProofNet, and PutnamBench use the existing v4.9 Mathlib gitlink at:
+miniF2F, ProofNet, and PutnamBench use a distinct `deepseek-v49-rc2`
+profile. It records Lean `v4.9.0-rc2`, the Mathlib source revision:
 
 ```text
 2f65ba7f1a9144b20c8e7358513548e317d26de1
 ```
+
+and REPL revision `3334a97b268ecc67beb36a75787f7e831208a724`. The source
+revision matches the existing gitlink, but the gitlink retains Goedel's rc1
+toolchain. The DeepSeek workspace is prepared separately and is not committed.
 
 FATE-M and FATE-H use a small Lake project under `technical/lean/fate-v428/`:
 
@@ -139,6 +144,7 @@ The public change is limited to:
 ```text
 technical/configs/models/deepseek-prover-v2-7b.yaml
 technical/configs/runs/deepseek/*.yaml
+technical/lean/deepseek-v49-rc2/*
 technical/lean/fate-v428/*
 technical/src/generation/candidates.py
 technical/src/generation/checkpoints.py

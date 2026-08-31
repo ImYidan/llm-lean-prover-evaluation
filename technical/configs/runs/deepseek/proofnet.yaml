@@ -1,9 +1,10 @@
+benchmark: proofnet
 generation:
   sample_schedule: [32]
   max_model_len: 40960
   max_tokens: 32768
 lean:
-  profile: mathlib-v49
+  profile: deepseek-v49-rc2
 verification:
   mode: full_header_repl
   timeout: 300

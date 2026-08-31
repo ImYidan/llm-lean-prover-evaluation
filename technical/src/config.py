@@ -1,5 +1,6 @@
 """Validation and loading for portable pipeline configuration files."""
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,9 @@ LEAN_PROFILE_KEYS = ("profile",)
 RUN_VERIFICATION_MODES = ("full_header_repl",)
 ASSEMBLY_KEYS = ("mode",)
 RUN_ASSEMBLY_MODES = ("standard", "proofnet")
+RUN_LEAN_PROFILES = ("mathlib-v49", "deepseek-v49-rc2", "fate-v428")
+RUN_BENCHMARKS = ("minif2f", "proofnet", "putnam", "fate-m", "fate-h")
+COMMIT_REVISION = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _require_mapping(config: dict[str, Any], section: str) -> dict[str, Any]:
@@ -49,10 +53,32 @@ def _validate_model_config(config: dict[str, Any]) -> None:
     model = _require_mapping(config, "model")
     generation = _require_mapping(config, "generation")
     _require_keys(model, "model", MODEL_KEYS)
+    _require_non_empty_string(model["id"], "model.id")
+    _require_positive_int(
+        model["tensor_parallel_size"], "model.tensor_parallel_size"
+    )
+    if not isinstance(model["trust_remote_code"], bool):
+        raise ValueError("model.trust_remote_code must be a boolean")
+    revision = model["revision"]
+    if revision is not None and (
+        not isinstance(revision, str) or COMMIT_REVISION.fullmatch(revision) is None
+    ):
+        raise ValueError(
+            "model.revision must be null or a 40-character lowercase hexadecimal commit"
+        )
     if model["id"] == DEEPSEEK_MODEL_ID:
         _require_keys(model, "model", DEEPSEEK_MODEL_KEYS)
         _require_keys(generation, "generation", DEEPSEEK_GENERATION_KEYS)
         _require_non_empty_string(model["dtype"], "model.dtype")
+        if model["dtype"] != "bfloat16":
+            raise ValueError("DeepSeek model.dtype must be bfloat16")
+        if revision is None:
+            raise ValueError("DeepSeek model.revision must pin an immutable commit")
+        _require_non_negative_int(generation["seed"], "generation.seed")
+        _require_non_negative_number(
+            generation["temperature"], "generation.temperature"
+        )
+        _require_unit_interval(generation["top_p"], "generation.top_p")
         _require_unit_interval(
             generation["gpu_memory_utilization"],
             "generation.gpu_memory_utilization",
@@ -71,6 +97,20 @@ def _validate_benchmark_config(config: dict[str, Any]) -> None:
 def _require_positive_int(value: Any, name: str) -> None:
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise ValueError(f"{name} must be a positive integer")
+
+
+def _require_non_negative_int(value: Any, name: str) -> None:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
+
+
+def _require_non_negative_number(value: Any, name: str) -> None:
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or float(value) < 0
+    ):
+        raise ValueError(f"{name} must be a non-negative number")
 
 
 def _require_non_empty_string(value: Any, name: str) -> None:
@@ -107,6 +147,11 @@ def cumulative_generation_offsets(sample_schedule: list[int]) -> list[int]:
 
 
 def _validate_run_config(config: dict[str, Any]) -> None:
+    benchmark = config.get("benchmark")
+    if not isinstance(benchmark, str):
+        raise ValueError("benchmark must be a string")
+    if benchmark not in RUN_BENCHMARKS:
+        raise ValueError(f"unsupported benchmark: {benchmark}")
     generation = _require_mapping(config, "generation")
     lean = _require_mapping(config, "lean")
     verification = _require_mapping(config, "verification")
@@ -124,8 +169,10 @@ def _validate_run_config(config: dict[str, Any]) -> None:
         raise ValueError(
             "generation.max_tokens must not exceed generation.max_model_len"
         )
-    if not isinstance(lean["profile"], str) or not lean["profile"]:
-        raise ValueError("lean.profile must be a non-empty string")
+    if not isinstance(lean["profile"], str):
+        raise ValueError("lean.profile must be a string")
+    if lean["profile"] not in RUN_LEAN_PROFILES:
+        raise ValueError(f"unsupported lean.profile: {lean['profile']}")
     if not isinstance(verification["mode"], str):
         raise ValueError("verification.mode must be a string")
     if verification["mode"] not in RUN_VERIFICATION_MODES:

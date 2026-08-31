@@ -131,9 +131,9 @@ generation:
         "assembly_mode",
     ),
     [
-        ("minif2f", [32], 32768, 8192, "mathlib-v49", 300, "standard"),
-        ("proofnet", [32], 40960, 32768, "mathlib-v49", 300, "proofnet"),
-        ("putnam", [1, 7, 8, 16], 40960, 32768, "mathlib-v49", 300, "standard"),
+        ("minif2f", [32], 32768, 8192, "deepseek-v49-rc2", 300, "standard"),
+        ("proofnet", [32], 40960, 32768, "deepseek-v49-rc2", 300, "proofnet"),
+        ("putnam", [1, 7, 8, 16], 40960, 32768, "deepseek-v49-rc2", 300, "standard"),
         ("fate-m", [32], 32768, 8192, "fate-v428", 4000, "standard"),
         ("fate-h", [32], 32768, 8192, "fate-v428", 4000, "standard"),
     ],
@@ -150,6 +150,7 @@ def test_deepseek_run_profiles(
     """Catch benchmark profiles with mismatched generation or Lean limits."""
     config = load_config(ROOT / f"technical/configs/runs/deepseek/{name}.yaml")
 
+    assert config["benchmark"] == name
     assert config["generation"]["sample_schedule"] == samples
     assert config["generation"]["max_model_len"] == model_len
     assert config["generation"]["max_tokens"] == new_tokens
@@ -170,6 +171,7 @@ def test_load_config_rejects_run_profile_without_a_lean_profile(tmp_path: Path):
     path = tmp_path / "run.yaml"
     path.write_text(
         """\
+benchmark: minif2f
 generation:
   sample_schedule: [32]
   max_model_len: 32768
@@ -190,6 +192,7 @@ def test_load_config_rejects_run_profile_without_assembly_mode(tmp_path: Path):
     path = tmp_path / "run.yaml"
     path.write_text(
         """\
+benchmark: minif2f
 generation:
   sample_schedule: [32]
   max_model_len: 32768
@@ -222,6 +225,7 @@ def test_load_config_rejects_invalid_run_profile_assembly_mode(
     path = tmp_path / "run.yaml"
     path.write_text(
         f"""\
+benchmark: minif2f
 generation:
   sample_schedule: [32]
   max_model_len: 32768
@@ -256,6 +260,7 @@ def test_load_config_rejects_invalid_run_profile_verification_mode(
     path = tmp_path / "run.yaml"
     path.write_text(
         f"""\
+benchmark: minif2f
 generation:
   sample_schedule: [32]
   max_model_len: 32768
@@ -280,6 +285,7 @@ def test_run_profile_allows_goedel_token_limit_equality(tmp_path: Path):
     path = tmp_path / "run.yaml"
     path.write_text(
         """\
+benchmark: minif2f
 generation:
   sample_schedule: [32]
   max_model_len: 32768
@@ -306,6 +312,7 @@ def test_deepseek_model_run_pair_rejects_token_limit_equality(tmp_path: Path):
     path = tmp_path / "run.yaml"
     path.write_text(
         """\
+benchmark: minif2f
 generation:
   sample_schedule: [32]
   max_model_len: 32768

@@ -117,12 +117,18 @@ def write_summary_outputs(output_dir: Path, result: dict) -> None:
                 },
             }
         )
-    if "generation_outcomes" in result:
-        meta.append({"generation_outcomes": result["generation_outcomes"]})
     atomic_write_text(
         output_dir / "meta_summarize.json",
         json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
     )
+    if "generation_outcomes" in result:
+        atomic_write_text(
+            output_dir / "generation_outcomes.json",
+            json.dumps(
+                result["generation_outcomes"], ensure_ascii=False, indent=2
+            )
+            + "\n",
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:

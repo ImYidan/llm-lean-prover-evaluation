@@ -1,3 +1,4 @@
+benchmark: fate-m
 generation:
   sample_schedule: [32]
   max_model_len: 32768

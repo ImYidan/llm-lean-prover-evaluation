@@ -26,8 +26,11 @@ def build_attempts(rows: list[dict], samples: int, offset: int) -> list[dict]:
 
     attempts = []
     for row in rows:
-        if not row.get("lean4_code"):
+        lean4_code = row.get("lean4_code")
+        if not lean4_code:
             continue
+        if not isinstance(lean4_code, str):
+            raise ValueError("lean4_code must be a string")
         origin_id = row.get("origin_problem_id") or row.get("problem_id") or row.get("name")
         if origin_id is None:
             raise ValueError("row is missing a problem identifier")

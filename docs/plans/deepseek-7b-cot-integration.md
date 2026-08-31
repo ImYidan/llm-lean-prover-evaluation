@@ -210,12 +210,15 @@ def test_grouped_generation_writes_raw_and_normalized_records(tmp_path):
 - Create: `technical/configs/runs/deepseek/putnam.yaml`
 - Create: `technical/configs/runs/deepseek/fate-m.yaml`
 - Create: `technical/configs/runs/deepseek/fate-h.yaml`
+- Create: `technical/lean/deepseek-v49-rc2/lean-toolchain`
+- Create: `technical/lean/deepseek-v49-rc2/profile.json`
 - Modify: `technical/tests/test_config.py`
 
 **Interfaces:**
 
 - Model profile pins ID `deepseek-ai/DeepSeek-Prover-V2-7B`, revision `a8d9e14432b2e8dd9df2a4d4e70f1ba9bc8d9b7b`, BF16, tensor parallel size 1, seed 30, temperature 1.0, top-p 0.95, and GPU memory utilization 0.90.
 - Run profiles select sample schedule, context limits, Lean profile, verification mode, and timeout.
+- miniF2F, ProofNet, and Putnam select `deepseek-v49-rc2`: Lean `v4.9.0-rc2`, Mathlib `2f65ba7f1a9144b20c8e7358513548e317d26de1`, and REPL `3334a97b268ecc67beb36a75787f7e831208a724`. FATE-M/H select `fate-v428`.
 
 - [ ] Add tests that load all five profiles and assert their benchmark-specific limits.
 

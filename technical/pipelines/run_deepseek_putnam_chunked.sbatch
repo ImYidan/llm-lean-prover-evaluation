@@ -28,16 +28,6 @@ CHUNK_INPUT=${CHUNK_ROOT}/input.jsonl
 STAGE_MARKER=${STAGE_DIR}/COMPLETE
 CUMULATIVE_DIR=${CHUNK_ROOT}/cumulative_pass${TARGET_PASS}
 
-mkdir -p "${OUTPUT_DIR}"
-"${PYTHON_BIN}" -m technical.src.run_manifest ensure \
-  --manifest "${RUN_MANIFEST}" \
-  --model-config "${MODEL_CONFIG}" \
-  --run-config "${RUN_CONFIG}" \
-  --input "${INPUT_PATH}" \
-  --pipeline deepseek-putnam \
-  --chunks "${CHUNKS}"
-mkdir -p "${STAGE_DIR}"
-
 readarray -t SETTINGS < <("${PYTHON_BIN}" -c '
 import sys
 from pathlib import Path
@@ -53,6 +43,15 @@ if run["generation"]["sample_schedule"] != [1, 7, 8, 16]:
     raise ValueError("DeepSeek Putnam run profile must use [1, 7, 8, 16]")
 if run["assembly"]["mode"] != "standard":
     raise ValueError("DeepSeek Putnam run profile must use standard assembly")
+try:
+    chunks = int(sys.argv[3])
+    chunk_index = int(sys.argv[4])
+except ValueError as error:
+    raise ValueError("CHUNKS and CHUNK_INDEX must be integers") from error
+if chunks < 1:
+    raise ValueError("CHUNKS must be positive")
+if chunk_index < 0 or chunk_index >= chunks:
+    raise ValueError("CHUNK_INDEX must satisfy 0 <= index < CHUNKS")
 print(model["generation"]["seed"])
 print(model["generation"]["temperature"])
 print(model["generation"]["top_p"])
@@ -66,7 +65,7 @@ print(model["model"]["revision"] or "__NONE__")
 print(run["verification"]["timeout"])
 print(run["assembly"]["mode"])
 print(run["lean"]["profile"])
-' "${MODEL_CONFIG}" "${RUN_CONFIG}")
+' "${MODEL_CONFIG}" "${RUN_CONFIG}" "${CHUNKS}" "${CHUNK_INDEX}")
 
 SEED=${SETTINGS[0]}
 TEMPERATURE=${SETTINGS[1]}
@@ -102,6 +101,16 @@ fi
   --profile "${LEAN_PROFILE}" \
   --workspace "${WORKSPACE}" \
   --repl-command "${REPL_COMMAND}"
+
+mkdir -p "${OUTPUT_DIR}"
+"${PYTHON_BIN}" -m technical.src.run_manifest ensure \
+  --manifest "${RUN_MANIFEST}" \
+  --model-config "${MODEL_CONFIG}" \
+  --run-config "${RUN_CONFIG}" \
+  --input "${INPUT_PATH}" \
+  --pipeline deepseek-putnam \
+  --chunks "${CHUNKS}"
+mkdir -p "${STAGE_DIR}"
 
 "${PYTHON_BIN}" -m technical.src.benchmarks.putnam_chunking split \
   --input "${INPUT_PATH}" \
@@ -140,7 +149,7 @@ else
     --input "${STAGE_DIR}/to_inference_codes.json" \
     --output "${STAGE_DIR}/code_compilation_full_header.json" \
     --workspace "${WORKSPACE}" \
-    --repl-command "${REPL_COMMAND}" \
+    --repl-command lake env "${REPL_COMMAND}" \
     --timeout "${PROOF_TIMEOUT}"
   "${PYTHON_BIN}" -m technical.src.run_manifest write-marker \
     --manifest "${RUN_MANIFEST}" \

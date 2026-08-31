@@ -1,6 +1,8 @@
 import json
+import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -16,6 +18,8 @@ REQUIRED = (
     ROOT / "docs/deepseek-7b-cot.md",
     ROOT / "technical/environment.yml",
     ROOT / "technical/lean-toolchain",
+    ROOT / "technical/lean/deepseek-v49-rc2/lean-toolchain",
+    ROOT / "technical/lean/deepseek-v49-rc2/profile.json",
     ROOT / "technical/lean/fate-v428/lean-toolchain",
     ROOT / "technical/lean/fate-v428/lakefile.toml",
     ROOT / "technical/lean/fate-v428/lake-manifest.json",
@@ -28,6 +32,7 @@ GENERATED_OUTPUT_NAMES = {
     "code_compilation_full_header.json",
     "code_compilation_repl.json",
     "full_records.json",
+    "generation_outcomes.json",
     "inference.jsonl",
     "meta_summarize.json",
     "origin_problem_id_summarize.csv",
@@ -66,6 +71,7 @@ REQUIRED_IGNORE_PATTERNS = {
     "**/code_compilation_full_header.json",
     "**/code_compilation_repl.json",
     "**/full_records.json",
+    "**/generation_outcomes.json",
     "**/generation_id_summarize.csv",
     "**/inference.jsonl",
     "**/meta_summarize.json",
@@ -126,7 +132,6 @@ EXCLUDED_DIRECTORIES = {
     ".pytest_cache",
     ".superpowers",
     "__pycache__",
-    "build",
     "vendor",
 }
 ARTIFACT_EXCLUDED_DIRECTORIES = {
@@ -429,7 +434,7 @@ def test_deepseek_operation_docs_cover_public_release_contract():
         "code_compilation_repl.json",
         "code_compilation_full_header.json",
         "meta_summarize.json",
-        "mathlib-v49",
+        "deepseek-v49-rc2",
         "fate-v428",
         "Lean v4.28.0",
         "LEAN_TEST_WORKSPACE",
@@ -676,6 +681,19 @@ def test_public_text_scan_covers_all_tracked_and_nonignored_release_text(tmp_pat
     assert all(path != "new-area/blob.bin" for path, _ in violations)
 
 
+def test_public_text_scan_does_not_exempt_tracked_build_directories(tmp_path):
+    """Catch a tracked release file escaping merely because a parent is named build."""
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    tracked = tmp_path / "build/release.env"
+    tracked.parent.mkdir()
+    tracked.write_text("path=/" + "home/private/build\n", encoding="utf-8")
+    subprocess.run(["git", "add", "build/release.env"], cwd=tmp_path, check=True)
+
+    violations = set(find_public_text_violations(tmp_path))
+
+    assert ("build/release.env", "private_path") in violations
+
+
 def test_slurm_pipelines_are_portable_and_fail_fast():
     assert all(path.is_file() for path in PIPELINES)
     expected_modules = {
@@ -745,6 +763,7 @@ def test_deepseek_pipelines_use_profiles_adapter_and_shared_verifier():
         assert "Path(sys.argv[2]).stem" not in text
         assert "--assembly-mode" in text
         assert "technical.src.lean_profiles" in text
+        assert '--repl-command lake env "${REPL_COMMAND}"' in text
         assert _line_number(text, "technical.src.lean_profiles") < _line_number(
             text, "technical.src.generation.generate"
         )
@@ -775,6 +794,85 @@ def test_deepseek_pipelines_use_profiles_adapter_and_shared_verifier():
         putnam, "putnam_chunking finalize"
     )
     assert 'touch "${OUTPUT_DIR}/COMPLETE"' not in putnam
+
+
+def test_standard_pipeline_rejects_invalid_profile_before_manifest_write(tmp_path):
+    """Catch an invalid first invocation binding an unusable output directory."""
+    input_path = tmp_path / "input.jsonl"
+    input_path.write_text("{}\n", encoding="utf-8")
+    run_config = tmp_path / "invalid-standard.yaml"
+    run_config.write_text(
+        """\
+benchmark: minif2f
+generation:
+  sample_schedule: [1, 1]
+  max_model_len: 32768
+  max_tokens: 8192
+lean:
+  profile: deepseek-v49-rc2
+verification:
+  mode: full_header_repl
+  timeout: 300
+assembly:
+  mode: standard
+""",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "output"
+
+    completed = subprocess.run(
+        [
+            "bash",
+            str(DEEPSEEK_PIPELINES[0]),
+            str(ROOT / "technical/configs/models/deepseek-prover-v2-7b.yaml"),
+            str(run_config),
+            str(input_path),
+            str(output_dir),
+            "unused-model",
+            "unused-workspace",
+            "unused-repl",
+        ],
+        cwd=ROOT,
+        env={**os.environ, "PYTHON_BIN": sys.executable},
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert not (output_dir / "run_manifest.json").exists()
+
+
+def test_putnam_pipeline_rejects_invalid_stage_before_manifest_write(tmp_path):
+    """Catch an unsupported stage tuple poisoning a fresh Putnam output root."""
+    input_path = tmp_path / "input.jsonl"
+    input_path.write_text("{}\n", encoding="utf-8")
+    output_dir = tmp_path / "output"
+
+    completed = subprocess.run(
+        [
+            "bash",
+            str(DEEPSEEK_PIPELINES[1]),
+            str(ROOT / "technical/configs/models/deepseek-prover-v2-7b.yaml"),
+            str(ROOT / "technical/configs/runs/deepseek/putnam.yaml"),
+            str(input_path),
+            str(output_dir),
+            "unused-model",
+            "unused-workspace",
+            "unused-repl",
+            "8",
+            "0",
+            "2",
+            "0",
+            "2",
+        ],
+        cwd=ROOT,
+        env={**os.environ, "PYTHON_BIN": sys.executable},
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert not (output_dir / "run_manifest.json").exists()
 
 
 def test_slurm_scripts_contain_no_private_runtime_paths_or_weights():

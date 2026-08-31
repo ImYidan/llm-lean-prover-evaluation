@@ -11,6 +11,9 @@ from pathlib import Path
 
 MATHLIB_V49_REVISION = "2f65ba7f1a9144b20c8e7358513548e317d26de1"
 MATHLIB_V49_TOOLCHAIN = "leanprover/lean4:v4.9.0-rc1"
+DEEPSEEK_V49_RC2_TOOLCHAIN = "leanprover/lean4:v4.9.0-rc2"
+DEEPSEEK_V49_RC2_MATHLIB_REVISION = MATHLIB_V49_REVISION
+DEEPSEEK_V49_RC2_REPL_REVISION = "3334a97b268ecc67beb36a75787f7e831208a724"
 FATE_V428_TOOLCHAIN = "v4.28.0"
 FATE_V428_MATHLIB_REVISION = "8f9d9cff6bd728b17a24e163c9402775d9e6a365"
 FATE_V428_REPL_REVISION = "527590ce2b9f3b5c4a9a1031e5b8fcfb909b9a4a"
@@ -49,17 +52,17 @@ def _validate_repl(workspace: Path, repl_command: tuple[str, ...]) -> None:
         raise ValueError("REPL command must name an executable file")
 
 
-def _fate_package_revisions(workspace: Path) -> dict[str, str]:
+def _package_revisions(workspace: Path, profile: str) -> dict[str, str]:
     manifest_path = workspace / "lake-manifest.json"
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except FileNotFoundError as error:
-        raise ValueError("fate-v428 workspace is missing lake-manifest.json") from error
+        raise ValueError(f"{profile} workspace is missing lake-manifest.json") from error
     except json.JSONDecodeError as error:
-        raise ValueError("fate-v428 lake-manifest.json is malformed") from error
+        raise ValueError(f"{profile} lake-manifest.json is malformed") from error
     packages = manifest.get("packages") if isinstance(manifest, dict) else None
     if not isinstance(packages, list):
-        raise ValueError("fate-v428 lake manifest must contain packages")
+        raise ValueError(f"{profile} lake manifest must contain packages")
     return {
         str(package.get("name", "")).lower(): str(package.get("rev", ""))
         for package in packages
@@ -88,12 +91,30 @@ def validate_lean_profile(
             "toolchain": toolchain,
             "mathlib_revision": revision,
         }
+    elif profile == "deepseek-v49-rc2":
+        if toolchain != DEEPSEEK_V49_RC2_TOOLCHAIN:
+            raise ValueError(
+                "lean profile deepseek-v49-rc2 requires toolchain "
+                f"{DEEPSEEK_V49_RC2_TOOLCHAIN}"
+            )
+        revision = _git_revision(workspace)
+        if revision != DEEPSEEK_V49_RC2_MATHLIB_REVISION:
+            raise ValueError("deepseek-v49-rc2 workspace revision mismatch")
+        revisions = _package_revisions(workspace, profile)
+        if revisions.get("repl") != DEEPSEEK_V49_RC2_REPL_REVISION:
+            raise ValueError("deepseek-v49-rc2 REPL revision mismatch")
+        result = {
+            "profile": profile,
+            "toolchain": toolchain,
+            "mathlib_revision": revision,
+            "repl_revision": revisions["repl"],
+        }
     elif profile == "fate-v428":
         if toolchain != FATE_V428_TOOLCHAIN:
             raise ValueError(
                 f"lean profile fate-v428 requires toolchain {FATE_V428_TOOLCHAIN}"
             )
-        revisions = _fate_package_revisions(workspace)
+        revisions = _package_revisions(workspace, profile)
         if revisions.get("mathlib") != FATE_V428_MATHLIB_REVISION:
             raise ValueError("fate-v428 mathlib revision mismatch")
         if revisions.get("repl") != FATE_V428_REPL_REVISION:

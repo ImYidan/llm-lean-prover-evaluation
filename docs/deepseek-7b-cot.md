@@ -25,14 +25,22 @@ conda env create -f technical/environment.yml
 conda activate goedel-prover-v2
 ```
 
-Build the Lean v4.9 Mathlib workspace for miniF2F, ProofNet, and PutnamBench:
+Build a separate Lean v4.9.0-rc2 workspace for miniF2F, ProofNet, and
+PutnamBench. The source revision is shared with the repository's Mathlib
+submodule, but the toolchain is not: the submodule retains Goedel's rc1 pin.
 
 ```bash
-git submodule update --init technical/vendor/mathlib4
-cd technical/vendor/mathlib4
-lake exe cache get
+git clone https://github.com/xinhjBrant/mathlib4.git <deepseek-workspace>
+git -C <deepseek-workspace> checkout 2f65ba7f1a9144b20c8e7358513548e317d26de1
+cp technical/lean/deepseek-v49-rc2/lean-toolchain <deepseek-workspace>/lean-toolchain
+cd <deepseek-workspace>
 lake build repl
 ```
+
+The `deepseek-v49-rc2` profile pins Lean `v4.9.0-rc2`, Mathlib
+`2f65ba7f1a9144b20c8e7358513548e317d26de1`, and the source manifest's REPL
+revision `3334a97b268ecc67beb36a75787f7e831208a724`. Keep this workspace separate
+from `technical/vendor/mathlib4`; no second Mathlib source tree is committed.
 
 Build the FATE workspace from the pinned Lake profile:
 
@@ -67,9 +75,9 @@ when loading by model ID.
 
 | Run profile | Config | Samples | Model length | New tokens | Lean profile | Timeout | Assembly |
 |---|---|---:|---:|---:|---|---:|---|
-| miniF2F | `technical/configs/runs/deepseek/minif2f.yaml` | 32 | 32768 | 8192 | `mathlib-v49` | 300 s | standard |
-| ProofNet | `technical/configs/runs/deepseek/proofnet.yaml` | 32 | 40960 | 32768 | `mathlib-v49` | 300 s | proofnet |
-| PutnamBench | `technical/configs/runs/deepseek/putnam.yaml` | 1+7+8+16 | 40960 | 32768 | `mathlib-v49` | 300 s | standard |
+| miniF2F | `technical/configs/runs/deepseek/minif2f.yaml` | 32 | 32768 | 8192 | `deepseek-v49-rc2` | 300 s | standard |
+| ProofNet | `technical/configs/runs/deepseek/proofnet.yaml` | 32 | 40960 | 32768 | `deepseek-v49-rc2` | 300 s | proofnet |
+| PutnamBench | `technical/configs/runs/deepseek/putnam.yaml` | 1+7+8+16 | 40960 | 32768 | `deepseek-v49-rc2` | 300 s | standard |
 | FATE-M | `technical/configs/runs/deepseek/fate-m.yaml` | 32 | 32768 | 8192 | `fate-v428` | 4000 s | standard |
 | FATE-H | `technical/configs/runs/deepseek/fate-h.yaml` | 32 | 32768 | 8192 | `fate-v428` | 4000 s | standard |
 
@@ -82,8 +90,10 @@ Use `technical/pipelines/run_deepseek.sbatch` for miniF2F, ProofNet, FATE-M,
 and FATE-H. The script reads sampling, verification, and assembly settings from
 the model and run profiles.
 
-Before any output is reused, the wrapper creates or validates
-`run_manifest.json`. Its stable hashes bind the model revision, effective
+Each run config names its benchmark explicitly. The wrapper validates that
+benchmark's Lean profile, stage arguments, and Lean
+workspace before it creates or reuses `run_manifest.json`. Its stable hashes
+bind the model revision, effective
 sampling, prompt contract, assembly mode, Lean and verification settings,
 input bytes, and chunk count without recording local paths. A conflict, or an
 existing artifact directory without a manifest, fails closed.
@@ -96,7 +106,7 @@ sbatch <site-options> technical/pipelines/run_deepseek.sbatch \
   <output-dir> \
   <model-dir> \
   <lean-workspace> \
-  <repl-command>
+  <repl-executable>
 ```
 
 Swap the run profile for ProofNet, FATE-M, or FATE-H. ProofNet selects
@@ -122,7 +132,7 @@ sbatch <site-options> technical/pipelines/run_deepseek_putnam_chunked.sbatch \
   <output-dir> \
   <model-dir> \
   <lean-workspace> \
-  <repl-command> \
+  <repl-executable> \
   8 0 7 1 8
 ```
 
@@ -149,8 +159,10 @@ DeepSeek generation writes raw checkpoints before it rewrites normalized JSON:
 - `code_compilation_full_header.json` stores Lean verification results.
 - `summary/origin_problem_id_summarize.csv`,
   `summary/generation_id_summarize.csv`, and `summary/meta_summarize.json`
-  store Pass@k summaries. Metadata counts `finish_reason` and
-  `extraction_status` separately from Lean results.
+  retain the historical Pass@k summary format.
+- `summary/generation_outcomes.json` counts `finish_reason` and
+  `extraction_status` separately from Lean results without changing the
+  historical Goedel metadata schema.
 - `run_manifest.json` binds reusable artifacts to stable public semantics.
 - `COMPLETE` is an atomic, hash-bound JSON marker for a completed standard
   run.
@@ -201,8 +213,8 @@ git diff --check
 Run the v4.9 Lean smoke after building the caller-supplied workspace:
 
 ```bash
-LEAN_TEST_WORKSPACE=<mathlib-v49-workspace> \
-LEAN_TEST_REPL_COMMAND=<repl-command> \
+LEAN_TEST_WORKSPACE=<deepseek-v49-rc2-workspace> \
+LEAN_TEST_REPL_COMMAND='lake env <repl-executable>' \
 python -m pytest -q technical/tests/test_integration_lean.py
 ```
 

@@ -33,7 +33,13 @@ def _run_manifest(tmp_path, chunks=2):
     input_path = tmp_path / "putnam.jsonl"
     input_path.write_text(
         "".join(
-            json.dumps({"problem_id": f"p{index}"}) + "\n"
+            json.dumps(
+                {
+                    "problem_id": f"p{index}",
+                    "lean4_code": f"theorem p{index} : True := by sorry",
+                }
+            )
+            + "\n"
             for index in range(chunks)
         ),
         encoding="utf-8",

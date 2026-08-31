@@ -17,15 +17,6 @@ REPL_COMMAND=$7
 PYTHON_BIN=${PYTHON_BIN:-python}
 RUN_MANIFEST=${OUTPUT_DIR}/run_manifest.json
 
-mkdir -p "${OUTPUT_DIR}"
-"${PYTHON_BIN}" -m technical.src.run_manifest ensure \
-  --manifest "${RUN_MANIFEST}" \
-  --model-config "${MODEL_CONFIG}" \
-  --run-config "${RUN_CONFIG}" \
-  --input "${INPUT_PATH}" \
-  --pipeline deepseek-standard \
-  --chunks 1
-
 readarray -t SETTINGS < <("${PYTHON_BIN}" -c '
 import sys
 from pathlib import Path
@@ -84,6 +75,15 @@ fi
   --workspace "${WORKSPACE}" \
   --repl-command "${REPL_COMMAND}"
 
+mkdir -p "${OUTPUT_DIR}"
+"${PYTHON_BIN}" -m technical.src.run_manifest ensure \
+  --manifest "${RUN_MANIFEST}" \
+  --model-config "${MODEL_CONFIG}" \
+  --run-config "${RUN_CONFIG}" \
+  --input "${INPUT_PATH}" \
+  --pipeline deepseek-standard \
+  --chunks 1
+
 if [[ -f "${OUTPUT_DIR}/COMPLETE" ]]; then
   "${PYTHON_BIN}" -m technical.src.run_manifest check-marker \
     --manifest "${RUN_MANIFEST}" \
@@ -113,7 +113,7 @@ fi
   --input "${OUTPUT_DIR}/to_inference_codes.json" \
   --output "${OUTPUT_DIR}/code_compilation_full_header.json" \
   --workspace "${WORKSPACE}" \
-  --repl-command "${REPL_COMMAND}" \
+  --repl-command lake env "${REPL_COMMAND}" \
   --timeout "${PROOF_TIMEOUT}"
 
 "${PYTHON_BIN}" -m technical.src.evaluation.summarize_passk \
