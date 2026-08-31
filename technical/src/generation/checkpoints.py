@@ -27,11 +27,15 @@ def load_checkpoint(path: Path) -> list[dict]:
     lines = _checkpoint_lines(Path(path))
     records = []
     for line_number, line in enumerate(lines, start=1):
-        if not line.strip():
-            continue
         final_unterminated_line = (
             line_number == len(lines) and not _has_line_ending(line)
         )
+        if not line.strip():
+            if final_unterminated_line:
+                break
+            raise CheckpointError(
+                f"malformed checkpoint JSON at line {line_number}: blank line"
+            )
         try:
             text = line.decode("utf-8")
             record = json.loads(text)

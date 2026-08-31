@@ -70,6 +70,18 @@ def test_malformed_interior_line_is_rejected(tmp_path):
         load_checkpoint(path)
 
 
+def test_blank_interior_line_is_rejected(tmp_path):
+    """Catch a loader that silently skips a complete blank checkpoint row."""
+    path = tmp_path / "inference.jsonl"
+    path.write_text(
+        '{"problem_id":"p_g0"}\n\n{"problem_id":"p_g1"}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CheckpointError, match="line 2"):
+        load_checkpoint(path)
+
+
 def test_index_rejects_missing_or_non_string_problem_ids():
     """Catch indexing records without stable string generation identifiers."""
     with pytest.raises(CheckpointError, match="record 1"):
