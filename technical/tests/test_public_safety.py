@@ -23,7 +23,20 @@ REQUIRED = (
     ROOT / "technical/pipelines/run_deepseek.sbatch",
     ROOT / "technical/pipelines/run_deepseek_putnam_chunked.sbatch",
 )
-TEXT_SUFFIXES = {".py", ".sh", ".sbatch", ".yaml", ".yml", ".md", ".txt"}
+TEXT_SUFFIXES = {
+    ".csv",
+    ".json",
+    ".jsonl",
+    ".lean",
+    ".md",
+    ".py",
+    ".sbatch",
+    ".sh",
+    ".toml",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
 GENERATED_OUTPUT_NAMES = {
     "COMPLETE",
     "code_compilation_full_header.json",
@@ -57,6 +70,9 @@ AI_ATTRIBUTION_NAMES = (
     "".join(("C", "h", "a", "t", "G", "P", "T")),
     "".join(("C", "l", "a", "u", "d", "e")),
     "".join(("O", "p", "e", "n", "A", "I")),
+)
+AI_ATTRIBUTION_GROUP = "|".join(
+    re.escape(name) for name in AI_ATTRIBUTION_NAMES
 )
 REQUIRED_IGNORE_PATTERNS = {
     "**/COMPLETE",
@@ -191,7 +207,9 @@ TEXT_VIOLATION_PATTERNS = (
     (
         "credential_assignment",
         re.compile(
-            r"\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|hf[_-]?token)"
+            r"\b(?:export\s+)?(?:[A-Z0-9]+[_-])*"
+            r"(?:api[_-]?key|access[_-]?token|secret[_-]?key|hf[_-]?token|"
+            r"auth[_-]?token|bearer[_-]?token)"
             r"\s*[:=]\s*[\"']?[A-Za-z0-9_./+=-]{12,}",
             flags=re.IGNORECASE,
         ),
@@ -199,16 +217,32 @@ TEXT_VIOLATION_PATTERNS = (
     ("secret_token", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
     (
         "attribution_trailer",
-        re.compile("Co-" + "authored-by:", flags=re.IGNORECASE),
-    ),
-    (
-        "generated_attribution",
         re.compile(
-            r"(?:generated|written|built)\s+by\s+"
-            + rf"(?:{'|'.join(re.escape(name) for name in AI_ATTRIBUTION_NAMES)})",
+            r"(?m)^(?:co-authored-by|reviewed-by|generated-by|authored-by|"
+            r"written-by|created-by|assisted-by)\s*:",
             flags=re.IGNORECASE,
         ),
     ),
+    (
+        "assistant_attribution",
+        re.compile(
+            r"\bai[- ](?:generated|assisted)\b"
+            + r"|"
+            + r"\b(?:generated|written|built|created|authored|assisted|"
+            + r"reviewed|produced)\s+(?:by|with|using)\s+"
+            + rf"(?:{AI_ATTRIBUTION_GROUP})\b"
+            + r"|"
+            + rf"\b(?:{AI_ATTRIBUTION_GROUP})\b\s+"
+            + r"(?:generated|wrote|built|created|authored|assisted|"
+            + r"reviewed|produced)\b",
+            flags=re.IGNORECASE,
+        ),
+    ),
+)
+ALLOWED_TEST_POLICY_FRAGMENTS = (
+    "/" + "home/private",
+    "/" + "home/name",
+    "Reviewed-by: Jane Example",
 )
 
 
@@ -288,14 +322,30 @@ def find_public_text_violations(root: Path) -> list[tuple[str, str]]:
     """Return forbidden marker occurrences in public text files below ``root``."""
     violations = []
     for path in public_text_paths(root):
+        relative = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8")
         for forbidden in FORBIDDEN:
             if forbidden in text:
-                violations.append((path.relative_to(root).as_posix(), forbidden))
+                violations.append((relative, forbidden))
         for label, pattern in TEXT_VIOLATION_PATTERNS:
-            if pattern.search(text):
-                violations.append((path.relative_to(root).as_posix(), label))
+            for match in pattern.finditer(text):
+                if _is_allowed_text_violation(relative, label, match):
+                    continue
+                violations.append((relative, label))
+                break
     return violations
+
+
+def _is_allowed_text_violation(relative: str, label: str, match: re.Match) -> bool:
+    matched_text = match.group(0)
+    if (
+        label == "assistant_attribution"
+        and "deepseek-ai/" in matched_text.lower()
+    ):
+        return True
+    if relative != "technical/tests/test_public_safety.py":
+        return False
+    return any(fragment in matched_text for fragment in ALLOWED_TEST_POLICY_FRAGMENTS)
 
 
 def _is_forbidden_generated_artifact(path: Path) -> bool:
@@ -310,10 +360,10 @@ def _is_forbidden_generated_artifact(path: Path) -> bool:
 def find_forbidden_public_artifacts(root: Path) -> list[str]:
     """Return generated Lean artifacts or vendored dependencies in public paths."""
     violations = []
-    tracked_files = _git_tracked_files(root)
+    release_files = _git_release_files(root)
     paths = (
-        (root / tracked_file for tracked_file in tracked_files)
-        if tracked_files is not None
+        (root / release_file for release_file in release_files)
+        if release_files is not None
         else root.rglob("*")
     )
     for path in paths:
@@ -340,6 +390,20 @@ def find_forbidden_public_artifacts(root: Path) -> list[str]:
         ):
             violations.append(relative.as_posix())
     return sorted(violations)
+
+
+def _git_release_files(root: Path) -> list[Path] | None:
+    git_dir = root / ".git"
+    if not git_dir.exists():
+        return None
+    result = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [Path(line) for line in result.stdout.splitlines() if line]
 
 
 def _git_tracked_files(root: Path) -> list[Path] | None:
@@ -526,6 +590,91 @@ def test_public_tree_omits_generated_lean_artifacts_and_fate_dependency_trees(
 
 def test_public_tree_has_no_generated_lean_artifacts_or_fate_dependency_trees():
     assert find_forbidden_public_artifacts(ROOT) == []
+
+
+def test_public_text_scan_covers_structured_source_and_result_text(
+    tmp_path: Path,
+):
+    """Catch private paths in textual source/config/result formats."""
+    fixtures = {
+        "technical/configs/model.toml": 'path = "/home/private/model"\n',
+        "technical/configs/model.json": '{"path": "/home/private/model"}\n',
+        "technical/configs/model.jsonl": '{"path": "/home/private/model"}\n',
+        "technical/lean/problem.lean": "-- /home/private/problem\n",
+        "technical/results/summary.csv": "path\n/home/private/result\n",
+    }
+    for name, text in fixtures.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    ignored_fixtures = (
+        "technical/vendor/mathlib4/Leak.lean",
+        "technical/lean/fate-v428/.lake/build/Leak.lean",
+    )
+    for name in ignored_fixtures:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("-- /home/private/ignored\n", encoding="utf-8")
+
+    violations = set(find_public_text_violations(tmp_path))
+
+    assert {
+        (name, "private_path")
+        for name in fixtures
+    } <= violations
+    assert all(name not in path for path, _ in violations for name in ignored_fixtures)
+
+
+def test_public_artifact_scan_includes_nonignored_untracked_git_files(
+    tmp_path: Path,
+):
+    """Catch generated artifacts that sit untracked in a release worktree."""
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    (tmp_path / ".gitignore").write_text(
+        "technical/vendor/**/.lake/\ntechnical/lean/**/.lake/\n",
+        encoding="utf-8",
+    )
+    artifact = tmp_path / "models/deepseek/model.safetensors"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("", encoding="utf-8")
+    ignored = tmp_path / "technical/vendor/mathlib4/.lake/build/Mathlib.olean"
+    ignored.parent.mkdir(parents=True)
+    ignored.write_text("", encoding="utf-8")
+
+    violations = find_forbidden_public_artifacts(tmp_path)
+
+    assert "models/deepseek/model.safetensors" in violations
+    assert "technical/vendor/mathlib4/.lake/build/Mathlib.olean" not in violations
+
+
+def test_public_text_scan_catches_prefixed_credentials_and_attribution_forms(
+    tmp_path: Path,
+):
+    """Catch service-scoped secrets and assistant attribution markers."""
+    credential = tmp_path / "technical/configs/private.yaml"
+    credential.parent.mkdir(parents=True)
+    credential.write_text(
+        "MISTRAL" + "_API" + "_KEY=abcd1234abcd1234\n",
+        encoding="utf-8",
+    )
+    assistant = tmp_path / "docs/assistant.md"
+    assistant.parent.mkdir(parents=True)
+    assistant.write_text(
+        "Created with " + "".join(("C", "h", "a", "t", "G", "P", "T")) + "\n",
+        encoding="utf-8",
+    )
+    trailer = tmp_path / "docs/trailer.md"
+    trailer.write_text("Reviewed-by: Jane Example\n", encoding="utf-8")
+    model = tmp_path / "docs/model.md"
+    model.write_text("Use deepseek-ai/DeepSeek-Prover-V2-7B.\n", encoding="utf-8")
+
+    violations = set(find_public_text_violations(tmp_path))
+
+    assert ("technical/configs/private.yaml", "credential_assignment") in violations
+    assert ("docs/assistant.md", "assistant_attribution") in violations
+    assert ("docs/trailer.md", "attribution_trailer") in violations
+    assert all(path != "docs/model.md" for path, _ in violations)
 
 
 def test_slurm_pipelines_are_portable_and_fail_fast():
