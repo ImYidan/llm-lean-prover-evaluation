@@ -1,0 +1,11 @@
+model:
+  id: deepseek-ai/DeepSeek-Prover-V2-7B
+  revision: a8d9e14432b2e8dd9df2a4d4e70f1ba9bc8d9b7b
+  dtype: bfloat16
+  tensor_parallel_size: 1
+  trust_remote_code: false
+generation:
+  seed: 30
+  temperature: 1.0
+  top_p: 0.95
+  gpu_memory_utilization: 0.90

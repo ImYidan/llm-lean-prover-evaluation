@@ -13,8 +13,18 @@ MODEL_GENERATION_KEYS = (
     "max_model_len",
     "samples_per_problem",
 )
+DEEPSEEK_MODEL_ID = "deepseek-ai/DeepSeek-Prover-V2-7B"
+DEEPSEEK_MODEL_KEYS = ("dtype",)
+DEEPSEEK_GENERATION_KEYS = (
+    "seed",
+    "temperature",
+    "top_p",
+    "gpu_memory_utilization",
+)
 BENCHMARK_GENERATION_KEYS = ("strategy",)
 VERIFICATION_KEYS = ("mode", "timeout")
+RUN_GENERATION_KEYS = ("sample_schedule", "max_model_len", "max_tokens")
+LEAN_PROFILE_KEYS = ("profile",)
 
 
 def _require_mapping(config: dict[str, Any], section: str) -> dict[str, Any]:
@@ -36,7 +46,11 @@ def _validate_model_config(config: dict[str, Any]) -> None:
     model = _require_mapping(config, "model")
     generation = _require_mapping(config, "generation")
     _require_keys(model, "model", MODEL_KEYS)
-    _require_keys(generation, "generation", MODEL_GENERATION_KEYS)
+    if model["id"] == DEEPSEEK_MODEL_ID:
+        _require_keys(model, "model", DEEPSEEK_MODEL_KEYS)
+        _require_keys(generation, "generation", DEEPSEEK_GENERATION_KEYS)
+    else:
+        _require_keys(generation, "generation", MODEL_GENERATION_KEYS)
 
 
 def _validate_benchmark_config(config: dict[str, Any]) -> None:
@@ -46,13 +60,61 @@ def _validate_benchmark_config(config: dict[str, Any]) -> None:
     _require_keys(verification, "verification", VERIFICATION_KEYS)
 
 
+def _require_positive_int(value: Any, name: str) -> None:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError(f"{name} must be a positive integer")
+
+
+def _validate_sample_schedule(sample_schedule: Any) -> list[int]:
+    if not isinstance(sample_schedule, list) or not sample_schedule:
+        raise ValueError("generation.sample_schedule must be a non-empty list")
+    for index, samples in enumerate(sample_schedule):
+        _require_positive_int(samples, f"generation.sample_schedule[{index}]")
+    return sample_schedule
+
+
+def cumulative_generation_offsets(sample_schedule: list[int]) -> list[int]:
+    """Return the generation offset at the start of every cumulative stage."""
+    validated_schedule = _validate_sample_schedule(sample_schedule)
+    offsets = []
+    next_offset = 0
+    for samples in validated_schedule:
+        offsets.append(next_offset)
+        next_offset += samples
+    return offsets
+
+
+def _validate_run_config(config: dict[str, Any]) -> None:
+    generation = _require_mapping(config, "generation")
+    lean = _require_mapping(config, "lean")
+    verification = _require_mapping(config, "verification")
+    _require_keys(generation, "generation", RUN_GENERATION_KEYS)
+    _require_keys(lean, "lean", LEAN_PROFILE_KEYS)
+    _require_keys(verification, "verification", VERIFICATION_KEYS)
+
+    _validate_sample_schedule(generation["sample_schedule"])
+    _require_positive_int(generation["max_model_len"], "generation.max_model_len")
+    _require_positive_int(generation["max_tokens"], "generation.max_tokens")
+    _require_positive_int(verification["timeout"], "verification.timeout")
+    if generation["max_tokens"] >= generation["max_model_len"]:
+        raise ValueError("generation.max_tokens must be less than generation.max_model_len")
+    if not isinstance(lean["profile"], str) or not lean["profile"]:
+        raise ValueError("lean.profile must be a non-empty string")
+
+
 def load_config(path: Path) -> dict:
-    """Load a model or benchmark YAML configuration with its required schema."""
+    """Load a model, benchmark, or run YAML configuration with its schema."""
     loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(loaded, dict):
         raise ValueError("configuration root must be a mapping")
 
-    if "verification" in loaded:
+    generation = loaded.get("generation")
+    is_run_profile = "lean" in loaded or (
+        isinstance(generation, dict) and "sample_schedule" in generation
+    )
+    if is_run_profile:
+        _validate_run_config(loaded)
+    elif "verification" in loaded:
         _validate_benchmark_config(loaded)
     else:
         _validate_model_config(loaded)
