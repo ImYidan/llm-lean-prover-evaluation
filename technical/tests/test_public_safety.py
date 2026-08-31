@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 
@@ -13,10 +14,52 @@ REQUIRED = (
     ROOT / "NOTICE",
     ROOT / "technical/environment.yml",
     ROOT / "technical/lean-toolchain",
+    ROOT / "technical/lean/fate-v428/lean-toolchain",
+    ROOT / "technical/lean/fate-v428/lakefile.toml",
+    ROOT / "technical/lean/fate-v428/lake-manifest.json",
     ROOT / "technical/configs/models/goedel-prover-v2-32b.yaml",
 )
 TEXT_SUFFIXES = {".py", ".sh", ".sbatch", ".yaml", ".yml", ".md", ".txt"}
-EXCLUDED_DIRECTORIES = {".git", ".superpowers", "vendor"}
+EXCLUDED_DIRECTORIES = {
+    ".elan",
+    ".git",
+    ".lake",
+    ".pytest_cache",
+    ".superpowers",
+    "__pycache__",
+    "vendor",
+}
+ARTIFACT_EXCLUDED_DIRECTORIES = {
+    ".git",
+    ".pytest_cache",
+    ".superpowers",
+    "__pycache__",
+    "vendor",
+}
+FORBIDDEN_ARTIFACT_DIRECTORIES = {".lake", ".elan"}
+FORBIDDEN_COMPILED_SUFFIXES = (
+    ".olean",
+    ".olean.trace",
+    ".ilean",
+    ".o",
+    ".so",
+    ".dylib",
+    ".dll",
+)
+FATE_PROFILE = ROOT / "technical/lean/fate-v428"
+FATE_VENDOR_DIRECTORIES = {
+    "aesop",
+    "batteries",
+    "Cli",
+    "importGraph",
+    "mathlib",
+    "mathlib4",
+    "proofwidgets",
+    "Qq",
+    "quote4",
+    "REPL",
+    "repl",
+}
 PIPELINES = (
     ROOT / "technical/pipelines/run_standard.sbatch",
     ROOT / "technical/pipelines/run_proofnet_incremental.sbatch",
@@ -74,6 +117,49 @@ def find_public_text_violations(root: Path) -> list[tuple[str, str]]:
     return violations
 
 
+def find_forbidden_public_artifacts(root: Path) -> list[str]:
+    """Return generated Lean artifacts or vendored dependencies in public paths."""
+    violations = []
+    tracked_files = _git_tracked_files(root)
+    paths = (
+        (root / tracked_file for tracked_file in tracked_files)
+        if tracked_files is not None
+        else root.rglob("*")
+    )
+    for path in paths:
+        relative = path.relative_to(root)
+        parts = relative.parts
+        if ARTIFACT_EXCLUDED_DIRECTORIES.intersection(parts):
+            continue
+        if FORBIDDEN_ARTIFACT_DIRECTORIES.intersection(parts):
+            violations.append(relative.as_posix())
+            continue
+        if path.is_file() and path.name.endswith(FORBIDDEN_COMPILED_SUFFIXES):
+            violations.append(relative.as_posix())
+            continue
+        if (
+            len(parts) > 3
+            and parts[:3] == ("technical", "lean", "fate-v428")
+            and parts[3] in FATE_VENDOR_DIRECTORIES
+        ):
+            violations.append(relative.as_posix())
+    return sorted(violations)
+
+
+def _git_tracked_files(root: Path) -> list[Path] | None:
+    git_dir = root / ".git"
+    if not git_dir.exists():
+        return None
+    result = subprocess.run(
+        ["git", "ls-files"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [Path(line) for line in result.stdout.splitlines() if line]
+
+
 def test_extensionless_technical_file_is_scanned_for_forbidden_markers(
     tmp_path: Path,
 ):
@@ -93,6 +179,35 @@ def test_public_text_files_have_no_private_paths_or_ai_attribution():
     assert all(path.is_file() for path in REQUIRED)
 
     assert find_public_text_violations(ROOT) == []
+
+
+def test_public_tree_omits_generated_lean_artifacts_and_fate_dependency_trees(
+    tmp_path: Path,
+):
+    """Catch accidentally publishing Lake caches or vendored FATE dependencies."""
+    (tmp_path / "technical/lean/fate-v428/.lake/packages/mathlib").mkdir(
+        parents=True
+    )
+    (tmp_path / "technical/lean/fate-v428/.lake/packages/mathlib/Mathlib.olean").write_text(
+        "",
+        encoding="utf-8",
+    )
+    (tmp_path / "technical/lean/fate-v428/.elan").mkdir()
+    (tmp_path / "technical/lean/fate-v428/repl").mkdir()
+    (tmp_path / "technical/vendor/mathlib4/.lake/build/Mathlib.olean").mkdir(
+        parents=True
+    )
+
+    violations = find_forbidden_public_artifacts(tmp_path)
+
+    assert "technical/lean/fate-v428/.lake" in violations
+    assert "technical/lean/fate-v428/.elan" in violations
+    assert "technical/lean/fate-v428/repl" in violations
+    assert "technical/vendor/mathlib4/.lake" not in violations
+
+
+def test_public_tree_has_no_generated_lean_artifacts_or_fate_dependency_trees():
+    assert find_forbidden_public_artifacts(ROOT) == []
 
 
 def test_slurm_pipelines_are_portable_and_fail_fast():

@@ -1,0 +1,13 @@
+name = "fate-v428"
+version = "0.1.0"
+defaultTargets = []
+
+[[require]]
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4.git"
+rev = "8f9d9cff6bd728b17a24e163c9402775d9e6a365"
+
+[[require]]
+name = "repl"
+git = "https://github.com/leanprover-community/repl.git"
+rev = "527590ce2b9f3b5c4a9a1031e5b8fcfb909b9a4a"

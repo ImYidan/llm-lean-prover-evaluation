@@ -128,7 +128,7 @@ Mathlib: 8f9d9cff6bd728b17a24e163c9402775d9e6a365
 REPL:    527590ce2b9f3b5c4a9a1031e5b8fcfb909b9a4a
 ```
 
-The project contains `lean-toolchain`, `lakefile.lean`, and the resolved
+The project contains `lean-toolchain`, `lakefile.toml`, and the resolved
 `lake-manifest.json`. It downloads dependencies during setup; it does not add a
 second vendored source tree.
 

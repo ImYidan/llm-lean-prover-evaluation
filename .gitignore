@@ -1,3 +1,12 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+technical/lean/**/.lake/
+technical/lean/**/.elan/
+technical/lean/**/*.olean
+technical/lean/**/*.olean.trace
+technical/lean/**/*.ilean
+technical/lean/**/*.o
+technical/lean/**/*.so
+technical/lean/**/*.dylib
+technical/lean/**/*.dll
