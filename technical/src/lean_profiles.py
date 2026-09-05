@@ -11,6 +11,7 @@ from pathlib import Path
 
 MATHLIB_V49_REVISION = "2f65ba7f1a9144b20c8e7358513548e317d26de1"
 MATHLIB_V49_TOOLCHAIN = "leanprover/lean4:v4.9.0-rc1"
+PYTHAGORAS_V49_REPL_REVISION = "6592fd3bec6b3b7f8b9d8432e3f4be08451673b9"
 DEEPSEEK_V49_RC2_TOOLCHAIN = "leanprover/lean4:v4.9.0-rc2"
 DEEPSEEK_V49_RC2_MATHLIB_REVISION = MATHLIB_V49_REVISION
 DEEPSEEK_V49_RC2_REPL_REVISION = "3334a97b268ecc67beb36a75787f7e831208a724"
@@ -23,6 +24,16 @@ def _git_revision(workspace: Path) -> str:
     completed = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=workspace,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _git_containing_revision(path: Path) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(Path(path).parent), "rev-parse", "HEAD"],
         check=True,
         capture_output=True,
         text=True,
@@ -50,6 +61,17 @@ def _validate_repl(workspace: Path, repl_command: tuple[str, ...]) -> None:
         raise ValueError("REPL executable must be inside the Lean workspace")
     if not resolved_command.is_file() or not os.access(resolved_command, os.X_OK):
         raise ValueError("REPL command must name an executable file")
+
+
+def _validate_external_repl(repl_command: tuple[str, ...]) -> Path:
+    if len(repl_command) != 1:
+        raise ValueError("REPL command must name one executable path")
+    command_path = Path(repl_command[0])
+    if not command_path.is_absolute():
+        raise ValueError("external REPL executable must use an absolute path")
+    if not command_path.is_file() or not os.access(command_path, os.X_OK):
+        raise ValueError("REPL command must name an executable file")
+    return command_path
 
 
 def _package_revisions(workspace: Path, profile: str) -> dict[str, str]:
@@ -91,6 +113,25 @@ def validate_lean_profile(
             "toolchain": toolchain,
             "mathlib_revision": revision,
         }
+    elif profile == "pythagoras-v49-rc1":
+        if toolchain != MATHLIB_V49_TOOLCHAIN:
+            raise ValueError(
+                "lean profile pythagoras-v49-rc1 requires toolchain "
+                f"{MATHLIB_V49_TOOLCHAIN}"
+            )
+        revision = _git_revision(workspace)
+        if revision != MATHLIB_V49_REVISION:
+            raise ValueError("pythagoras-v49-rc1 Mathlib revision mismatch")
+        command_path = _validate_external_repl(repl_command)
+        repl_revision = _git_containing_revision(command_path)
+        if repl_revision != PYTHAGORAS_V49_REPL_REVISION:
+            raise ValueError("pythagoras-v49-rc1 REPL revision mismatch")
+        result = {
+            "profile": profile,
+            "toolchain": toolchain,
+            "mathlib_revision": revision,
+            "repl_revision": repl_revision,
+        }
     elif profile == "deepseek-v49-rc2":
         if toolchain != DEEPSEEK_V49_RC2_TOOLCHAIN:
             raise ValueError(
@@ -127,7 +168,8 @@ def validate_lean_profile(
         }
     else:
         raise ValueError(f"unsupported Lean profile: {profile}")
-    _validate_repl(workspace, repl_command)
+    if profile != "pythagoras-v49-rc1":
+        _validate_repl(workspace, repl_command)
     return result
 
 

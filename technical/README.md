@@ -39,8 +39,15 @@ Every stage requires caller-supplied paths. In particular:
 - `--input` points to benchmark JSONL or a generated JSON array;
 - `--workspace` points to the prepared Lean/Mathlib workspace;
 - `--repl-command` points to the REPL executable used in that workspace;
-- output options point to a result directory; matching generation stages are
-  overwritten rather than resumed.
+- output options point to a result directory. Kimina, Pythagoras, and DeepSeek
+  grouped generation append raw JSONL checkpoints and validate the completed
+  prefix before resuming.
+
+Kimina and Pythagoras use `technical/environment-autoregressive.yml` and the
+shared `technical/pipelines/run_autoregressive.sbatch` entry point. Their exact
+model and five benchmark profiles are under `technical/configs/models` and
+`technical/configs/runs/{kimina,pythagoras}`. See the model-specific documents
+in `docs/` for commands and version pins.
 
 ## Security boundary
 

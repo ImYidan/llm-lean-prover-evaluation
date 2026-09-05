@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import resource
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -85,14 +86,20 @@ class FullHeaderReplSession:
             "lean-repl",
             *config.repl_command,
         ]
-        self.child = pexpect.spawn(
-            "/bin/bash",
-            arguments,
-            cwd=str(config.workspace),
-            encoding="utf-8",
-            maxread=1,
-            echo=False,
-        )
+        spawn_options = {
+            "cwd": str(config.workspace),
+            "encoding": "utf-8",
+            "maxread": 1,
+            "echo": False,
+        }
+        if config.memory_limit_gb:
+            limit = config.memory_limit_gb * 1024**3
+
+            def set_address_space_limit() -> None:
+                resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+
+            spawn_options["preexec_fn"] = set_address_space_limit
+        self.child = pexpect.spawn("/bin/bash", arguments, **spawn_options)
 
     def verify(self, code: str) -> dict:
         if not code:
@@ -127,7 +134,14 @@ class FullHeaderReplSession:
             self.child.close(force=True)
 
 
-def _verify_partition(indexed_records, config, code_field, session_factory):
+def _verify_partition(
+    indexed_records,
+    config,
+    code_field,
+    recovery_policy,
+    restart_every,
+    session_factory,
+):
     results = []
     session = None
     try:
@@ -136,6 +150,23 @@ def _verify_partition(indexed_records, config, code_field, session_factory):
             if name is None:
                 raise ValueError("record is missing a problem identifier")
             code = select_code(record, code_field)
+            if recovery_policy == "kimina" and (
+                not code.strip() or code == "None"
+            ):
+                from technical.src.generation.adapters.kimina import (
+                    recover_kimina_submission,
+                )
+                from technical.src.generation.proof_extraction import (
+                    ProofAssemblyError,
+                )
+
+                try:
+                    code = recover_kimina_submission(
+                        str(record.get("lean4_code", "")),
+                        str(record.get("model_output", "")),
+                    )
+                except ProofAssemblyError:
+                    pass
             if not code.strip() or code == "None":
                 results.append(
                     (
@@ -169,6 +200,9 @@ def _verify_partition(indexed_records, config, code_field, session_factory):
             if compilation_result.get("system_errors") is not None:
                 session.close()
                 session = None
+            elif restart_every and len(results) % restart_every == 0:
+                session.close()
+                session = None
     finally:
         if session is not None:
             session.close()
@@ -181,10 +215,16 @@ def verify_full_header_records(
     workers: int,
     *,
     code_field: str = "auto",
+    recovery_policy: str = "none",
+    restart_every: int = 0,
     session_factory=FullHeaderReplSession,
 ) -> list[dict]:
     if workers < 1:
         raise ValueError("workers must be positive")
+    if recovery_policy not in {"none", "kimina"}:
+        raise ValueError(f"unsupported recovery policy: {recovery_policy}")
+    if restart_every < 0:
+        raise ValueError("restart_every must be non-negative")
     partitions = [[] for _ in range(min(workers, max(1, len(records))))]
     for indexed_record in enumerate(records):
         partitions[indexed_record[0] % len(partitions)].append(indexed_record)
@@ -195,6 +235,8 @@ def verify_full_header_records(
                 partition,
                 config,
                 code_field,
+                recovery_policy,
+                restart_every,
                 session_factory,
             )
             for partition in partitions
@@ -213,6 +255,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--code-field", choices=("auto", "full_code", "lean4_code", "code"), default="auto")
+    parser.add_argument("--recovery-policy", choices=("none", "kimina"), default="none")
+    parser.add_argument("--restart-every", type=int, default=0)
+    parser.add_argument("--memory-limit-gb", type=int, default=0)
     return parser
 
 
@@ -224,9 +269,15 @@ def main(argv: list[str] | None = None) -> int:
         repl_command=tuple(args.repl_command),
         imports="",
         proof_timeout=args.timeout,
+        memory_limit_gb=args.memory_limit_gb,
     )
     results = verify_full_header_records(
-        records, config, args.workers, code_field=args.code_field
+        records,
+        config,
+        args.workers,
+        code_field=args.code_field,
+        recovery_policy=args.recovery_policy,
+        restart_every=args.restart_every,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(

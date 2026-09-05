@@ -1,0 +1,14 @@
+model:
+  id: AI-MO/Kimina-Prover-Distill-8B
+  revision: 74d328a7b1f001ab4871812582fc66d9bf70c68b
+  tokenizer_revision: 74d328a7b1f001ab4871812582fc66d9bf70c68b
+  adapter: kimina
+  dtype: bfloat16
+  tensor_parallel_size: 4
+  trust_remote_code: true
+generation:
+  seed: 0
+  temperature: 0.6
+  top_p: 0.95
+  top_k: -1
+  gpu_memory_utilization: 0.92

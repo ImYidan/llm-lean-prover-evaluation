@@ -17,12 +17,15 @@ class ReplConfig:
     imports: str
     import_timeout: int = 100
     proof_timeout: int = 300
+    memory_limit_gb: int = 0
 
     def __post_init__(self) -> None:
         if not self.repl_command:
             raise ValueError("REPL command must not be empty")
         if self.import_timeout < 1 or self.proof_timeout < 1:
             raise ValueError("REPL timeouts must be positive")
+        if self.memory_limit_gb < 0:
+            raise ValueError("REPL memory limit must be non-negative")
 
 
 def encode_repl_command(command: str, env: int | None = None) -> str:

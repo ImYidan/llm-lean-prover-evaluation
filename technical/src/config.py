@@ -15,6 +15,9 @@ MODEL_GENERATION_KEYS = (
     "samples_per_problem",
 )
 DEEPSEEK_MODEL_ID = "deepseek-ai/DeepSeek-Prover-V2-7B"
+KIMINA_MODEL_ID = "AI-MO/Kimina-Prover-Distill-8B"
+PYTHAGORAS_MODEL_ID = "Pythagoras-LM/Pythagoras-Prover-4B"
+AUTOREGRESSIVE_MODEL_IDS = (KIMINA_MODEL_ID, PYTHAGORAS_MODEL_ID)
 DEEPSEEK_MODEL_KEYS = ("dtype",)
 DEEPSEEK_GENERATION_KEYS = (
     "seed",
@@ -22,15 +25,29 @@ DEEPSEEK_GENERATION_KEYS = (
     "top_p",
     "gpu_memory_utilization",
 )
+AUTOREGRESSIVE_MODEL_KEYS = ("adapter", "dtype", "tokenizer_revision")
+AUTOREGRESSIVE_GENERATION_KEYS = (
+    "seed",
+    "temperature",
+    "top_p",
+    "top_k",
+    "gpu_memory_utilization",
+)
 BENCHMARK_GENERATION_KEYS = ("strategy",)
 VERIFICATION_KEYS = ("mode", "timeout")
 RUN_GENERATION_KEYS = ("sample_schedule", "max_model_len", "max_tokens")
 LEAN_PROFILE_KEYS = ("profile",)
-RUN_VERIFICATION_MODES = ("full_header_repl",)
+RUN_VERIFICATION_MODES = ("full_header_repl", "full_header_file")
 ASSEMBLY_KEYS = ("mode",)
-RUN_ASSEMBLY_MODES = ("standard", "proofnet")
-RUN_LEAN_PROFILES = ("mathlib-v49", "deepseek-v49-rc2", "fate-v428")
+RUN_ASSEMBLY_MODES = ("standard", "proofnet", "verbatim")
+RUN_LEAN_PROFILES = (
+    "mathlib-v49",
+    "deepseek-v49-rc2",
+    "pythagoras-v49-rc1",
+    "fate-v428",
+)
 RUN_BENCHMARKS = ("minif2f", "proofnet", "putnam", "fate-m", "fate-h")
+RUN_PIPELINES = ("autoregressive", "deepseek-standard", "deepseek-putnam")
 COMMIT_REVISION = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -79,6 +96,36 @@ def _validate_model_config(config: dict[str, Any]) -> None:
             generation["temperature"], "generation.temperature"
         )
         _require_unit_interval(generation["top_p"], "generation.top_p")
+        _require_unit_interval(
+            generation["gpu_memory_utilization"],
+            "generation.gpu_memory_utilization",
+        )
+    elif model["id"] in AUTOREGRESSIVE_MODEL_IDS:
+        _require_keys(model, "model", AUTOREGRESSIVE_MODEL_KEYS)
+        _require_keys(
+            generation, "generation", AUTOREGRESSIVE_GENERATION_KEYS
+        )
+        expected_adapter = (
+            "kimina" if model["id"] == KIMINA_MODEL_ID else "pythagoras"
+        )
+        if model["adapter"] != expected_adapter:
+            raise ValueError(
+                f"model.adapter must be {expected_adapter} for {model['id']}"
+            )
+        _require_non_empty_string(model["dtype"], "model.dtype")
+        if revision is None:
+            raise ValueError("public model.revision must pin an immutable commit")
+        if model["tokenizer_revision"] != revision:
+            raise ValueError("model.tokenizer_revision must match model.revision")
+        _require_non_negative_int(generation["seed"], "generation.seed")
+        _require_non_negative_number(
+            generation["temperature"], "generation.temperature"
+        )
+        _require_unit_interval(generation["top_p"], "generation.top_p")
+        if not isinstance(generation["top_k"], int) or isinstance(
+            generation["top_k"], bool
+        ):
+            raise ValueError("generation.top_k must be an integer")
         _require_unit_interval(
             generation["gpu_memory_utilization"],
             "generation.gpu_memory_utilization",
@@ -152,6 +199,12 @@ def _validate_run_config(config: dict[str, Any]) -> None:
         raise ValueError("benchmark must be a string")
     if benchmark not in RUN_BENCHMARKS:
         raise ValueError(f"unsupported benchmark: {benchmark}")
+    pipeline = config.get("pipeline")
+    if pipeline is not None:
+        if not isinstance(pipeline, str):
+            raise ValueError("pipeline must be a string")
+        if pipeline not in RUN_PIPELINES:
+            raise ValueError(f"unsupported pipeline: {pipeline}")
     generation = _require_mapping(config, "generation")
     lean = _require_mapping(config, "lean")
     verification = _require_mapping(config, "verification")
@@ -165,6 +218,16 @@ def _validate_run_config(config: dict[str, Any]) -> None:
     _require_positive_int(generation["max_model_len"], "generation.max_model_len")
     _require_positive_int(generation["max_tokens"], "generation.max_tokens")
     _require_positive_int(verification["timeout"], "verification.timeout")
+    if "workers" in verification:
+        _require_positive_int(verification["workers"], "verification.workers")
+    if "memory_limit_gb" in verification:
+        _require_positive_int(
+            verification["memory_limit_gb"], "verification.memory_limit_gb"
+        )
+    if "restart_every" in verification:
+        _require_positive_int(
+            verification["restart_every"], "verification.restart_every"
+        )
     if generation["max_tokens"] > generation["max_model_len"]:
         raise ValueError(
             "generation.max_tokens must not exceed generation.max_model_len"
@@ -194,6 +257,32 @@ def validate_model_run_config(model_config: dict, run_config: dict) -> None:
         raise ValueError(
             "generation.max_tokens must be less than generation.max_model_len"
         )
+    if model.get("id") in AUTOREGRESSIVE_MODEL_IDS:
+        if run_config.get("pipeline") != "autoregressive":
+            raise ValueError("public model runs require pipeline: autoregressive")
+        adapter = model["adapter"]
+        assembly = _require_mapping(run_config, "assembly")["mode"]
+        verification = _require_mapping(run_config, "verification")["mode"]
+        benchmark = run_config["benchmark"]
+        lean_profile = _require_mapping(run_config, "lean")["profile"]
+        if adapter == "pythagoras":
+            if assembly != "verbatim":
+                raise ValueError("Pythagoras runs require verbatim assembly")
+            if verification != "full_header_file":
+                raise ValueError("Pythagoras runs require full_header_file verification")
+            if lean_profile != "pythagoras-v49-rc1":
+                raise ValueError("Pythagoras runs require pythagoras-v49-rc1")
+        elif adapter == "kimina":
+            expected_profile = (
+                "fate-v428" if benchmark in {"fate-m", "fate-h"}
+                else "pythagoras-v49-rc1"
+            )
+            if verification != "full_header_repl":
+                raise ValueError("Kimina runs require full_header_repl verification")
+            if lean_profile != expected_profile:
+                raise ValueError(
+                    f"Kimina {benchmark} requires {expected_profile}"
+                )
 
 
 def load_config(path: Path) -> dict:

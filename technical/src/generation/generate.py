@@ -186,9 +186,11 @@ def create_vllm_backend(
     temperature: float,
     top_p: float,
     max_tokens: int,
+    top_k: int = -1,
     samples_per_prompt: int = 1,
     trust_remote_code: bool = False,
     revision: str | None = None,
+    tokenizer_revision: str | None = None,
     dtype: str = "auto",
     gpu_memory_utilization: float = 0.90,
     adapter: str = "goedel",
@@ -206,7 +208,9 @@ def create_vllm_backend(
     from vllm import LLM, SamplingParams
 
     tokenizer = AutoTokenizer.from_pretrained(
-        model_path, trust_remote_code=trust_remote_code, revision=revision
+        model_path,
+        trust_remote_code=trust_remote_code,
+        revision=tokenizer_revision or revision,
     )
     model = LLM(
         model=model_path,
@@ -221,6 +225,7 @@ def create_vllm_backend(
     params = SamplingParams(
         temperature=temperature,
         top_p=top_p,
+        top_k=top_k,
         max_tokens=max_tokens,
         n=samples_per_prompt,
     )
@@ -239,7 +244,7 @@ def validate_generation_options(
     """Reject invalid generation limits before loading optional model backends."""
     if samples < 1:
         raise ValueError("samples must be positive")
-    if adapter not in {"goedel", "deepseek"}:
+    if adapter not in {"goedel", "deepseek", "kimina", "pythagoras"}:
         raise ValueError(f"unsupported generation adapter: {adapter}")
     if max_tokens > max_model_len:
         raise ValueError("max_tokens must not exceed max_model_len")
@@ -260,10 +265,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--adapter", choices=("goedel", "deepseek"), default="goedel")
+    parser.add_argument(
+        "--adapter",
+        choices=("goedel", "deepseek", "kimina", "pythagoras"),
+        default="goedel",
+    )
     parser.add_argument(
         "--assembly-mode",
-        choices=("standard", "proofnet"),
+        choices=("standard", "proofnet", "verbatim"),
         default="standard",
         help="DeepSeek proof assembly policy; ProofNet keeps the target-aware header.",
     )
@@ -281,13 +290,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--chunk-size", type=int, default=128)
     parser.add_argument("--trust-remote-code", action="store_true")
     parser.add_argument("--revision")
+    parser.add_argument("--tokenizer-revision")
+    parser.add_argument("--top-k", type=int, default=-1)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.adapter != "deepseek" and args.assembly_mode != "standard":
-        raise SystemExit("--assembly-mode is only supported with --adapter deepseek")
+    if args.adapter == "goedel" and args.assembly_mode != "standard":
+        raise SystemExit("Goedel supports only standard assembly")
+    if args.adapter == "pythagoras" and args.assembly_mode != "verbatim":
+        raise SystemExit("Pythagoras requires verbatim assembly")
     try:
         validate_generation_options(
             samples=args.samples,
@@ -307,22 +320,43 @@ def main(argv: list[str] | None = None) -> int:
         max_model_len=args.max_model_len,
         temperature=args.temperature,
         top_p=args.top_p,
+        top_k=args.top_k,
         max_tokens=args.max_tokens,
-        samples_per_prompt=args.samples if args.adapter == "deepseek" else 1,
+        samples_per_prompt=args.samples if args.adapter != "goedel" else 1,
         trust_remote_code=args.trust_remote_code,
         revision=args.revision,
+        tokenizer_revision=args.tokenizer_revision,
         dtype=args.dtype,
         gpu_memory_utilization=args.gpu_memory_utilization,
         adapter=args.adapter,
     )
-    if args.adapter == "deepseek":
+    if args.adapter in {"deepseek", "kimina", "pythagoras"}:
         assembler = None
+        adapter = None
+        if args.adapter == "deepseek":
+            from technical.src.generation.adapters.deepseek import DeepSeekPromptAdapter
+
+            adapter = DeepSeekPromptAdapter()
+        elif args.adapter == "kimina":
+            from technical.src.generation.adapters.kimina import (
+                KiminaPromptAdapter,
+                assemble_kimina_submission,
+            )
+
+            adapter = KiminaPromptAdapter()
+            assembler = assemble_kimina_submission
+        else:
+            from technical.src.generation.adapters.pythagoras import (
+                PythagorasPromptAdapter,
+                assemble_pythagoras_submission,
+            )
+
+            adapter = PythagorasPromptAdapter()
+            assembler = assemble_pythagoras_submission
+
         if args.assembly_mode == "proofnet":
             from technical.src.benchmarks.proofnet import (
                 prepare_unique_rows,
-            )
-            from technical.src.generation.adapters.deepseek import (
-                assemble_deepseek_proofnet_submission,
             )
 
             rows, duplicate_report = prepare_unique_rows(rows)
@@ -330,20 +364,47 @@ def main(argv: list[str] | None = None) -> int:
                 args.output_dir / "proofnet_duplicate_problem_ids.json",
                 duplicate_report,
             )
-            assembler = assemble_deepseek_proofnet_submission
+            if args.adapter == "deepseek":
+                from technical.src.generation.adapters.deepseek import (
+                    assemble_deepseek_proofnet_submission,
+                )
 
-        from technical.src.generation.deepseek import generate_deepseek_records
+                assembler = assemble_deepseek_proofnet_submission
+            elif args.adapter == "kimina":
+                from technical.src.generation.adapters.kimina import extract_kimina_proof
+                from technical.src.benchmarks.proofnet import assemble_proofnet_submission
+
+                def assemble_kimina_proofnet(statement: str, output: str) -> str:
+                    return assemble_proofnet_submission(
+                        statement, extract_kimina_proof(output)
+                    )
+
+                assembler = assemble_kimina_proofnet
+
+        from technical.src.generation.deepseek import (
+            generate_deepseek_records,
+            generate_grouped_records,
+        )
 
         kwargs = {}
         if assembler is not None:
             kwargs["assembler"] = assembler
-        generate_deepseek_records(
+        generator = (
+            generate_deepseek_records
+            if args.adapter == "deepseek"
+            else generate_grouped_records
+        )
+        grouped_kwargs = {}
+        if args.adapter != "deepseek":
+            grouped_kwargs["adapter"] = adapter
+        generator(
             rows,
             tokenizer=tokenizer,
             backend=backend,
             output_dir=args.output_dir,
             samples=args.samples,
             generation_offset=args.generation_offset,
+            **grouped_kwargs,
             **kwargs,
         )
         return 0

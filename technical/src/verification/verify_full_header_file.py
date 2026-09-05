@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import re
+import resource
 import subprocess
 import tempfile
 import time
@@ -90,6 +91,7 @@ def verify_file_record(
     tmp_dir: Path | None = None,
     code_field: str = "auto",
     runner: Callable = subprocess.run,
+    memory_limit_gb: int = 0,
 ) -> dict:
     """Compile one complete source without altering its bytes."""
     started = time.monotonic()
@@ -120,12 +122,21 @@ def verify_file_record(
             temporary.write(code)
             temporary_path = Path(temporary.name)
 
+        run_options = {
+            "cwd": Path(workspace),
+            "text": True,
+            "capture_output": True,
+            "timeout": timeout,
+        }
+        if memory_limit_gb:
+            limit = memory_limit_gb * 1024**3
+
+            def set_address_space_limit() -> None:
+                resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+
+            run_options["preexec_fn"] = set_address_space_limit
         completed = runner(
-            ["lake", "env", "lean", str(temporary_path)],
-            cwd=Path(workspace),
-            text=True,
-            capture_output=True,
-            timeout=timeout,
+            ["lake", "env", "lean", str(temporary_path)], **run_options
         )
         stdout = completed.stdout or ""
         stderr = completed.stderr or ""
@@ -194,6 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tmp-dir", type=Path)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--memory-limit-gb", type=int, default=0)
     parser.add_argument("--code-field", choices=("auto", *CODE_FIELDS), default="auto")
     return parser
 
@@ -210,6 +222,7 @@ def main(argv: list[str] | None = None) -> int:
                     timeout=args.timeout,
                     tmp_dir=args.tmp_dir,
                     code_field=args.code_field,
+                    memory_limit_gb=args.memory_limit_gb,
                 ),
                 records,
             )

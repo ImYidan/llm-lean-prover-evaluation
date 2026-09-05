@@ -1,0 +1,17 @@
+benchmark: putnam
+pipeline: autoregressive
+generation:
+  sample_schedule: [32]
+  max_model_len: 40960
+  max_tokens: 40000
+  chunks: 16
+lean:
+  profile: pythagoras-v49-rc1
+verification:
+  mode: full_header_repl
+  timeout: 1000
+  workers: 16
+  memory_limit_gb: 24
+  restart_every: 25
+assembly:
+  mode: standard

@@ -1,0 +1,13 @@
+name: lean-prover-autoregressive
+channels:
+  - conda-forge
+  - nvidia
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - pexpect==4.9.0
+      - pyyaml==6.0.2
+      - torch==2.11.0
+      - transformers==5.12.1
+      - vllm==0.23.0

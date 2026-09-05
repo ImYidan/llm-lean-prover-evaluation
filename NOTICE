@@ -18,6 +18,13 @@ This repository records the reviewed model revision in configuration metadata.
 Users supply the model path at run time. This distribution does not include
 model weights or tokenizer snapshots.
 
+Kimina-Prover-Distill-8B and Pythagoras-Prover-4B integrations target these
+public model repositories; only evaluation code and immutable revision metadata
+are distributed here:
+
+https://huggingface.co/AI-MO/Kimina-Prover-Distill-8B
+https://huggingface.co/Pythagoras-LM/Pythagoras-Prover-4B
+
 Gitlinks, Lake declarations, and Lake manifest pins identify Lean, Mathlib,
 and REPL sources:
 

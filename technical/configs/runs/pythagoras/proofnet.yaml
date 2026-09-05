@@ -1,0 +1,15 @@
+benchmark: proofnet
+pipeline: autoregressive
+generation:
+  sample_schedule: [32]
+  max_model_len: 40960
+  max_tokens: 30000
+lean:
+  profile: pythagoras-v49-rc1
+verification:
+  mode: full_header_file
+  timeout: 800
+  workers: 11
+  memory_limit_gb: 36
+assembly:
+  mode: verbatim

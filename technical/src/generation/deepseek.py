@@ -159,17 +159,18 @@ def _record_from_candidate(
     return record
 
 
-def generate_deepseek_records(
+def generate_grouped_records(
     rows: list[dict],
     *,
     tokenizer,
     backend,
+    adapter,
     output_dir: Path,
     samples: int,
     generation_offset: int = 0,
     assembler: Callable[[str, str], str | None] = assemble_deepseek_submission,
 ) -> tuple[list[dict], list[dict]]:
-    """Generate grouped DeepSeek candidates and resume from a valid raw prefix."""
+    """Generate grouped candidates and resume from a validated raw prefix."""
     expected = build_attempts(rows, samples=samples, offset=generation_offset)
     output_dir = Path(output_dir)
     checkpoint_path = output_dir / "inference.jsonl"
@@ -183,8 +184,6 @@ def generate_deepseek_records(
     checkpoint_writer = CheckpointWriter(checkpoint_path, records=full_records)
 
     next_source_index = len(full_records) // samples
-    adapter = DeepSeekPromptAdapter()
-
     for source_index in range(next_source_index, len(expected) // samples):
         group = expected[source_index * samples : (source_index + 1) * samples]
         source_attempt = group[0]
@@ -192,12 +191,12 @@ def generate_deepseek_records(
         outputs = backend.generate([prompt])
         if len(outputs) != 1:
             raise RuntimeError(
-                "DeepSeek generation backend returned the wrong number of request groups"
+                "grouped generation backend returned the wrong number of request groups"
             )
         candidates = outputs[0]
         if len(candidates) != samples:
             raise RuntimeError(
-                f"DeepSeek generation expected {samples} candidates "
+                f"grouped generation expected {samples} candidates "
                 f"but received {len(candidates)}"
             )
 
@@ -218,3 +217,26 @@ def generate_deepseek_records(
     elif len(full_records) == len(expected):
         _write_normalized_outputs(output_dir, full_records)
     return full_records, [to_inference_record(record) for record in full_records]
+
+
+def generate_deepseek_records(
+    rows: list[dict],
+    *,
+    tokenizer,
+    backend,
+    output_dir: Path,
+    samples: int,
+    generation_offset: int = 0,
+    assembler: Callable[[str, str], str | None] = assemble_deepseek_submission,
+) -> tuple[list[dict], list[dict]]:
+    """Backward-compatible DeepSeek entry point."""
+    return generate_grouped_records(
+        rows,
+        tokenizer=tokenizer,
+        backend=backend,
+        adapter=DeepSeekPromptAdapter(),
+        output_dir=output_dir,
+        samples=samples,
+        generation_offset=generation_offset,
+        assembler=assembler,
+    )
