@@ -11,6 +11,9 @@ Start with [technical/README.md](technical/README.md) for setup, command-line
 interfaces, output schemas, and benchmark-specific pipelines.
 For DeepSeek-Prover-V2-7B CoT, read
 [docs/deepseek-7b-cot.md](docs/deepseek-7b-cot.md).
+The [historical DeepSeek archive](archives/deepseek-prover-v2-7b/README.md)
+preserves the original evaluation implementation, input fingerprints, dependency
+pins and its differences from the shared pipeline.
 The autoregressive releases are documented in
 [docs/kimina-prover-distill-8b.md](docs/kimina-prover-distill-8b.md) and
 [docs/pythagoras-prover-4b.md](docs/pythagoras-prover-4b.md).

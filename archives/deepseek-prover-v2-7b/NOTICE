@@ -1,0 +1,22 @@
+This directory preserves the repository owner's historical DeepSeek evaluation
+implementation, with the portability changes listed in provenance/source-files.json.
+It is distributed under the repository's Apache-2.0 license; see ../../LICENSE.
+
+The model and prompt conventions refer to:
+https://huggingface.co/deepseek-ai/DeepSeek-Prover-V2-7B
+https://github.com/deepseek-ai/DeepSeek-Prover-V2
+
+Lean dependencies and their source licenses remain with their upstream projects:
+https://github.com/leanprover/lean4
+https://github.com/xinhjBrant/mathlib4
+https://github.com/xinhjBrant/repl
+https://github.com/leanprover-community/mathlib4
+https://github.com/leanprover-community/repl
+
+Benchmark provenance:
+https://github.com/openai/miniF2F
+https://github.com/zhangir-azerbayev/ProofNet
+https://github.com/leanprover-community/PutnamBench
+https://github.com/frenzymath/FATE
+
+The code license does not relicense model assets or benchmark contents.

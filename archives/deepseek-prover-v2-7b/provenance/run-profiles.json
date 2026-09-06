@@ -1,0 +1,53 @@
+{
+  "shared_generation": {
+    "model_seed": 30,
+    "sampling_params_seed": 30,
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "tensor_parallel_size": 1,
+    "gpu_memory_utilization": 0.9,
+    "batch_size": 1,
+    "max_num_seqs": 8,
+    "enable_prefix_caching": true,
+    "enforce_eager": false
+  },
+  "verification": {
+    "process_policy": "One lake env REPL subprocess per non-empty candidate",
+    "shuffle_seed": 30,
+    "timeout_policy": "Kill the subprocess group and record a system error",
+    "summary_ks": [1, 8, 16, 32],
+    "summary_metrics": ["empirical_prefix", "unbiased_estimate"]
+  },
+  "benchmarks": {
+    "minif2f": {
+      "input": "minif2f.jsonl", "rows": 244, "split": "test",
+      "samples": 32, "max_model_len": 32768, "max_new_tokens": 8192,
+      "generation_shards": 4, "lean_profile": "deepseek-v49-rc2",
+      "verify_timeout": 300, "verify_workers": 32
+    },
+    "proofnet": {
+      "input": "proofnet_test.jsonl", "rows": 186, "split": "test",
+      "historical_parts": ["proofnet.jsonl", "proofnet_remaining66.jsonl"],
+      "samples": 32, "max_model_len": 40960, "max_new_tokens": 32768,
+      "generation_shards": 4, "lean_profile": "deepseek-v49-rc2",
+      "verify_timeout": 300, "verify_workers": 32,
+      "note": "Historical evaluation combined an initial 120-row run and a 66-row continuation; the old shell default is the initial subset. A new run on the combined input is not a byte-identical reconstruction of those separate generations."
+    },
+    "putnam": {
+      "input": "putnambench_lean.jsonl", "rows": 672, "split": "none",
+      "chunks": 24, "sample_schedule": [1, 7, 8, 16], "offsets": [0, 1, 8, 16],
+      "max_model_len": 40960, "max_new_tokens": 32768,
+      "lean_profile": "deepseek-v49-rc2", "verify_timeout": 300, "verify_workers": 16
+    },
+    "fate-m": {
+      "input": "fate_m.jsonl", "rows": 150, "split": "test",
+      "samples": 32, "max_model_len": 32768, "max_new_tokens": 8192,
+      "lean_profile": "fate-v428", "verify_timeout": 4000, "verify_workers": 16
+    },
+    "fate-h": {
+      "input": "fate_h.jsonl", "rows": 100, "split": "test",
+      "samples": 32, "max_model_len": 32768, "max_new_tokens": 8192,
+      "lean_profile": "fate-v428", "verify_timeout": 4000, "verify_workers": 16
+    }
+  }
+}

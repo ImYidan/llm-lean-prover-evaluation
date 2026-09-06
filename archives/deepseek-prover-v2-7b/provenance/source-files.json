@@ -1,0 +1,111 @@
+{
+  "purpose": "Historical implementation snapshot with portable path adaptations.",
+  "files": [
+    {
+      "file": "src/inference.py",
+      "source_sha256": "ca1c02924ec3c8fa3d858fb4567d7b99b776868a53183f2bdd58b0f740cfc6d2",
+      "archived_sha256": "7bbbc3e14cfddd61f2c0f89b02fead654a4dffcb10173d0b234dfc72cf41819e",
+      "adaptations": [
+        "Move Transformers import into main so --help needs no model runtime."
+      ]
+    },
+    {
+      "file": "src/verify.py",
+      "source_sha256": "a804b5522ce1e0e1bebced5f0350d38de9b43a0b87517f47e503a309b3c4e7e4",
+      "archived_sha256": "84f90688bc4bd3ec47a48b9422c12cd625be232e9fdaef89fad75284e117daa7",
+      "adaptations": [
+        "Require caller-supplied workspace, Lake and REPL paths; remove private defaults."
+      ]
+    },
+    {
+      "file": "src/summarize.py",
+      "source_sha256": "e495acfe2f844263766df32a4eda260a648cb2a804ca980c7f6a36fd1c53eaee",
+      "archived_sha256": "e495acfe2f844263766df32a4eda260a648cb2a804ca980c7f6a36fd1c53eaee",
+      "adaptations": []
+    },
+    {
+      "file": "scripts/merge_inference.py",
+      "source_sha256": "5ef972642a16a36131b84ad1814c37b900ac1f62a10e30efc2db73dee1d66273",
+      "archived_sha256": "5ef972642a16a36131b84ad1814c37b900ac1f62a10e30efc2db73dee1d66273",
+      "adaptations": []
+    },
+    {
+      "file": "scripts/merge_records.py",
+      "source_sha256": "73f38ddbd6ea7e07b88901e2d8c15df7af72cb9fb36a82e6c8f606807f49361f",
+      "archived_sha256": "73f38ddbd6ea7e07b88901e2d8c15df7af72cb9fb36a82e6c8f606807f49361f",
+      "adaptations": []
+    },
+    {
+      "file": "scripts/putnam_progress_summary.py",
+      "source_sha256": "fc2f422f69cdf39a4743b095abcfe3c59c64b1870f03a016adda7bb1fef102b9",
+      "archived_sha256": "fc2f422f69cdf39a4743b095abcfe3c59c64b1870f03a016adda7bb1fef102b9",
+      "adaptations": []
+    },
+    {
+      "file": "scripts/split_jsonl.py",
+      "source_sha256": "f36bb126ffe4cc0c768132c61e6752426a12ee223022d176c527a902c46eaef0",
+      "archived_sha256": "f36bb126ffe4cc0c768132c61e6752426a12ee223022d176c527a902c46eaef0",
+      "adaptations": []
+    },
+    {
+      "file": "scripts/minif2f_generate.slurm",
+      "source_sha256": "c7c8a7113e003dddddf5eb9751b8b917721049700b8bcf418b45b52c9e81f530",
+      "archived_sha256": "575863587926a857634c302d485f0ce62f807b26fcb04d4bec0168d91ec332de",
+      "adaptations": [
+        "Use common.sh from ARCHIVE_ROOT or the submission directory and caller-supplied data/output/model/Lean paths.",
+        "Remove host-specific Conda activation and scheduler log destinations.",
+        "Remove machine preflight helper calls; retain generation and verification arguments."
+      ]
+    },
+    {
+      "file": "scripts/minif2f_finalize.slurm",
+      "source_sha256": "1e07aef4520b17f94cc938a7a0045a8dd2d8eed23e3889be37a2ff4bc6399415",
+      "archived_sha256": "76a2690c94009e4373fdfb983006b5aed946b541d4217ce9a5517538a8586e64",
+      "adaptations": [
+        "Use common.sh from ARCHIVE_ROOT or the submission directory and caller-supplied data/output/model/Lean paths.",
+        "Remove host-specific Conda activation and scheduler log destinations.",
+        "Remove machine preflight helper calls; retain generation and verification arguments."
+      ]
+    },
+    {
+      "file": "scripts/proofnet_generate.slurm",
+      "source_sha256": "d4f39e459b67f39c093439742e5bd16e51ff30bc0735ceb0b02797df93296673",
+      "archived_sha256": "8e3227898d529652bca21a5645198f43f5457cd3f9ee976ca3251121af3b4382",
+      "adaptations": [
+        "Use common.sh from ARCHIVE_ROOT or the submission directory and caller-supplied data/output/model/Lean paths.",
+        "Remove host-specific Conda activation and scheduler log destinations.",
+        "Remove machine preflight helper calls; retain generation and verification arguments."
+      ]
+    },
+    {
+      "file": "scripts/proofnet_finalize.slurm",
+      "source_sha256": "8a2a7914124e08c0179fbfb5e0b5f139b1c0901309443a32b7115c6097821b3f",
+      "archived_sha256": "bcdce4cf3cc19608c74f6f9e4adfc9befea709666012e2b7e7cb93d04f98860d",
+      "adaptations": [
+        "Use common.sh from ARCHIVE_ROOT or the submission directory and caller-supplied data/output/model/Lean paths.",
+        "Remove host-specific Conda activation and scheduler log destinations.",
+        "Remove machine preflight helper calls; retain generation and verification arguments."
+      ]
+    },
+    {
+      "file": "scripts/fate_full.slurm",
+      "source_sha256": "a296e91a268c722451796285e2e5f7b619b36ad2e236e44d5fbdcdf12fbec49d",
+      "archived_sha256": "84bd718c973880c928331c80408e10fc5306f153dd7fc1afaf297af304b8249a",
+      "adaptations": [
+        "Use common.sh from ARCHIVE_ROOT or the submission directory and caller-supplied data/output/model/Lean paths.",
+        "Remove host-specific Conda activation and scheduler log destinations.",
+        "Remove machine preflight helper calls; retain generation and verification arguments."
+      ]
+    },
+    {
+      "file": "scripts/putnambench_chunked_incremental.slurm",
+      "source_sha256": "16ef5aafda5ae83824cdb43038c590f89f6c45eccce908b1359ca3a98a26802f",
+      "archived_sha256": "ecba4d6c435ac9b1f6be5a26caa0c84c56435e292b36eaffb8b4150332521cd7",
+      "adaptations": [
+        "Use common.sh from ARCHIVE_ROOT or the submission directory and caller-supplied data/output/model/Lean paths.",
+        "Remove host-specific Conda activation and scheduler log destinations.",
+        "Remove machine preflight helper calls; retain generation and verification arguments."
+      ]
+    }
+  ]
+}

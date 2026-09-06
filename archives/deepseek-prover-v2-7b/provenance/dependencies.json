@@ -1,0 +1,36 @@
+{
+  "model": {
+    "id": "deepseek-ai/DeepSeek-Prover-V2-7B",
+    "revision": "a8d9e14432b2e8dd9df2a4d4e70f1ba9bc8d9b7b",
+    "tokenizer_revision": "a8d9e14432b2e8dd9df2a4d4e70f1ba9bc8d9b7b",
+    "trust_remote_code": true,
+    "dtype": "bfloat16",
+    "eos_token_id": 100001,
+    "custom_stop_sequences": null,
+    "assets_included": false
+  },
+  "runtime": {
+    "python": "3.10.16",
+    "torch": "2.6.0",
+    "transformers": "4.51.3",
+    "vllm": "0.8.5.post1",
+    "evidence": "Historical environment metadata and full-run log version headers. Later vLLM 0.11.0 smoke experiments are not the selected evaluation runtime."
+  },
+  "lean_profiles": {
+    "deepseek-v49-rc2": {
+      "toolchain": "leanprover/lean4:v4.9.0-rc2",
+      "mathlib_url": "https://github.com/xinhjBrant/mathlib4.git",
+      "mathlib_revision": "2f65ba7f1a9144b20c8e7358513548e317d26de1",
+      "repl_url": "https://github.com/xinhjBrant/repl.git",
+      "repl_revision": "3334a97b268ecc67beb36a75787f7e831208a724",
+      "source_modification": "Replace the Mathlib root lean-toolchain with leanprover/lean4:v4.9.0-rc2 before building its dependencies."
+    },
+    "fate-v428": {
+      "toolchain": "leanprover/lean4:v4.28.0",
+      "mathlib_url": "https://github.com/leanprover-community/mathlib4.git",
+      "mathlib_revision": "8f9d9cff6bd728b17a24e163c9402775d9e6a365",
+      "repl_url": "https://github.com/leanprover-community/repl.git",
+      "repl_revision": "527590ce2b9f3b5c4a9a1031e5b8fcfb909b9a4a"
+    }
+  }
+}

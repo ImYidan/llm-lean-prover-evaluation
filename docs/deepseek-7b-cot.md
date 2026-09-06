@@ -1,5 +1,12 @@
 # DeepSeek-Prover-V2-7B CoT Operation
 
+For the original experiment implementation and its exact sampling/verification
+semantics, see the [historical archive](../archives/deepseek-prover-v2-7b/README.md).
+It also records the prepared input hashes and the separate ProofNet portions.
+The shared pipeline described below is not a byte-identical copy of that code:
+it uses persistent REPL sessions, different sampling-seed plumbing and a
+separate prefix-selection module for non-Putnam Pass@1/8/16 summaries.
+
 ## Scope
 
 This pipeline evaluates `deepseek-ai/DeepSeek-Prover-V2-7B` on miniF2F,

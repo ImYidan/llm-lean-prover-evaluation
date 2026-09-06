@@ -1,0 +1,154 @@
+{
+  "purpose": "Fingerprints of original prepared inputs; no problem text is included here.",
+  "proofnet_note": "proofnet.jsonl is the initial 120 rows; proofnet_remaining66.jsonl completes the 186-row test split. Preserve row order and duplicate-ID handling.",
+  "datasets": [
+    {
+      "filename": "minif2f.jsonl",
+      "sha256": "47ca505cd60a503a77165e84bbf34c662f9a8c650d09fc33fb4c000179eee8f3",
+      "bytes": 307060,
+      "rows": 244,
+      "split_counts": {
+        "test": 244
+      },
+      "unique_source_ids": 244,
+      "fields": [
+        "formal_statement",
+        "informal_prefix",
+        "lean4_code",
+        "name",
+        "problem_id",
+        "split"
+      ]
+    },
+    {
+      "filename": "proofnet.jsonl",
+      "sha256": "50a20f8c9bf5082779a2ded42fcfdb401e7f8b829457788840df1fd3c29e393f",
+      "bytes": 129628,
+      "rows": 120,
+      "split_counts": {
+        "test": 120
+      },
+      "unique_source_ids": 118,
+      "fields": [
+        "formal_statement",
+        "goal",
+        "header",
+        "informal_prefix",
+        "lean4_code",
+        "name",
+        "problem_id",
+        "split"
+      ]
+    },
+    {
+      "filename": "proofnet_remaining66.jsonl",
+      "sha256": "37ecf4a7d77fe7fcfd7f14ea75bb98192ef925791dac5141aaf66bed487e00b8",
+      "bytes": 83883,
+      "rows": 66,
+      "split_counts": {
+        "test": 66
+      },
+      "unique_source_ids": 66,
+      "fields": [
+        "formal_statement",
+        "goal",
+        "header",
+        "informal_prefix",
+        "lean4_code",
+        "name",
+        "original_problem_id",
+        "problem_id",
+        "source_row_index",
+        "split"
+      ]
+    },
+    {
+      "filename": "proofnet_test.jsonl",
+      "sha256": "ea4fa4a97fbbdf6f57dec5637af70dce852d2ab0f6dafc7925d8c2e10082f594",
+      "bytes": 209170,
+      "rows": 186,
+      "split_counts": {
+        "test": 186
+      },
+      "unique_source_ids": 181,
+      "fields": [
+        "formal_statement",
+        "goal",
+        "header",
+        "informal_prefix",
+        "lean4_code",
+        "name",
+        "problem_id",
+        "split"
+      ]
+    },
+    {
+      "filename": "putnambench_lean.jsonl",
+      "sha256": "d327bc2203be287f5970a7c20969b736c8534be8d592105f9e9089e7e6efcd25",
+      "bytes": 1209509,
+      "rows": 672,
+      "split_counts": {
+        "test": 672
+      },
+      "unique_source_ids": 672,
+      "fields": [
+        "category",
+        "formal_statement",
+        "header",
+        "informal_prefix",
+        "lean4_code",
+        "name",
+        "problem_id",
+        "source",
+        "source_file",
+        "split",
+        "tags"
+      ]
+    },
+    {
+      "filename": "fate_m.jsonl",
+      "sha256": "86c42fafe1b40d5fec771264ff174384a4874d8f0b0595141ec520f0b5f88573",
+      "bytes": 172988,
+      "rows": 150,
+      "split_counts": {
+        "test": 150
+      },
+      "unique_source_ids": 150,
+      "fields": [
+        "fate_id",
+        "formal_statement",
+        "informal_prefix",
+        "informal_statement",
+        "lean4_code",
+        "name",
+        "problem_id",
+        "source",
+        "split",
+        "version"
+      ]
+    },
+    {
+      "filename": "fate_h.jsonl",
+      "sha256": "b779553b20eec708acc3f1e06e78cd5b132ed6dbc641ddbef29070c5010c1609",
+      "bytes": 156674,
+      "rows": 100,
+      "split_counts": {
+        "test": 100
+      },
+      "unique_source_ids": 100,
+      "fields": [
+        "fate_id",
+        "formal_statement",
+        "informal_prefix",
+        "informal_statement",
+        "lean4_code",
+        "name",
+        "problem_id",
+        "source",
+        "split",
+        "tag",
+        "version"
+      ]
+    }
+  ]
+}

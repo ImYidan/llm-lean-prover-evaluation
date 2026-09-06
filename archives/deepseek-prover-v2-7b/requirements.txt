@@ -1,0 +1,5 @@
+# Historical evaluation runtime; use Python 3.10 (recorded version 3.10.16).
+# CUDA/driver compatibility must be checked on the target GPU host.
+torch==2.6.0
+transformers==4.51.3
+vllm==0.8.5.post1
