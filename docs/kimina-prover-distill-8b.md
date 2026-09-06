@@ -8,7 +8,7 @@ tokenizer snapshot, benchmark data, generated responses, logs, or scores.
 
 - model and tokenizer revision: `74d328a7b1f001ab4871812582fc66d9bf70c68b`
 - runtime: Python 3.12, vLLM 0.23.0, Transformers 5.12.1, PyTorch 2.11.0
-- sampling: seed 0, temperature 0.6, top-p 0.95, top-k -1, 32 candidates
+- sampling: seed 42, temperature 0.6, top-p 0.95, top-k -1, 32 candidates
 - miniF2F/ProofNet/Putnam: Lean `v4.9.0-rc1`, Mathlib
   `2f65ba7f1a9144b20c8e7358513548e317d26de1`, REPL
   `6592fd3bec6b3b7f8b9d8432e3f4be08451673b9`
